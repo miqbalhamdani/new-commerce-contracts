@@ -51,14 +51,18 @@ Applied to every table in every phase.
 ### 3.1 Extensions and shared helpers
 
 ```sql
-CREATE EXTENSION IF NOT EXISTS ltree;
-CREATE EXTENSION IF NOT EXISTS unaccent;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS ltree;      -- categories.path
+CREATE EXTENSION IF NOT EXISTS unaccent;   -- slugify
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- product title search
+CREATE EXTENSION IF NOT EXISTS citext;     -- users.email, see 3.2
 
 -- Applied to every tenant-owned table. Shown once, assume everywhere.
 -- CREATE POLICY tenant_isolation ON <table>
 --     USING      (tenant_id = current_setting('app.tenant_id', true)::uuid)
 --     WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+
+-- P1-006 wraps those three statements in enable_tenant_rls(regclass), so a table
+-- migration is one line and cannot get three of the four statements right.
 ```
 
 ### 3.2 Platform
