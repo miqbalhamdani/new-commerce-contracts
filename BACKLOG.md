@@ -23,29 +23,29 @@ nothing depends on something below it.
 
 ---
 
-## M0 · Foundation (weeks 1–5)
+## M0 · Foundation (weeks 1–3)
 
 Nothing user-visible ships here. Everything after it depends on all of it.
 
+Production infrastructure — the VPS, Caddy, TLS, backups and CI — sits in `M4` at the end of the
+phase, not here. There is no box and no domain yet; every document still says `{domain}`. The
+only piece of it the backend genuinely needs is a reachable PostgreSQL 18, and `P1-000` provides
+that from the developer's own machine — a connection string and a `make` target, no container.
+This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
+
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-001 | VPS provisioning, Docker Compose, Caddy, TLS | OPS | — | `docker compose up` serves HTTPS on the domain | todo | |
-| P1-002 | PostgreSQL 16 + Redis 7 with tuned config and resource limits | OPS | 001 | `shared_buffers` ≈ 25% RAM; per-service `cpus`/`mem_limit` set | todo | |
-| P1-003 | **pgBackRest to R2 + restore drill** | OPS | 002 | **A restore from R2 into a clean box succeeds.** Blocks all merchant data | todo | |
-| P1-004 | CI: lint, test, migration-on-snapshot, contracts drift check | BE/FE | 001 | A PR that breaks any of the four is red | todo | |
-| P1-005 | `openapi.yaml` skeleton + generators wired both repos | CT/BE/FE | 004 | `make generate` is a no-op on a clean tree in both repos | todo | |
-| P1-006 | Migration runner, `app_user` non-owning role, RLS helper | BE | 002 | `app_user` owns nothing; `FORCE RLS` on every tenant table | todo | |
+| P1-000 | Local dev services: host PostgreSQL 18 + Redis 8 | OPS | — | `make dev` connects to host PostgreSQL 18 on `:5432` and Redis 8 on `:6379`; `GET /healthz` reports both | wip | Iqbal Hamdani |
+| P1-005 | `openapi.yaml` skeleton + generators wired both repos | CT/BE/FE | 000 | `make generate` is a no-op on a clean tree in both repos | todo | |
+| P1-006 | Migration runner, `app_user` non-owning role, RLS helper | BE | 000 | `app_user` owns nothing; `FORCE RLS` on every tenant table | todo | |
 | P1-007 | `InTenantTx`, tenant context, fail-closed on missing tenant | BE | 006 | Missing tenant returns `ErrNoTenantContext`, never an empty result | todo | |
 | P1-008 | **Tenant isolation test suite over every registered route** | BE | 007 | Two seeded tenants; A's token returns zero of B's rows on every route | todo | |
-| P1-009 | RLS-policy CI guard | BE | 006 | A new table with `tenant_id` and no policy fails the build | todo | |
+| P1-009 | RLS-policy guard | BE | 006 | `make lint-rls` exits non-zero on a `tenant_id` table with no policy | todo | |
 | P1-010 | `tenants`, `users`, `refresh_tokens`, `api_keys` schema | BE | 006 | Matches `erd.md` §3.2 exactly | todo | |
 | P1-011 | Auth: login, refresh rotation, logout, argon2id | BE | 010 | A reused refresh token revokes the whole chain | todo | |
 | P1-012 | RBAC: 5 seeded roles, `resource:action` checks at handler boundary | BE | 011 | `403` names the required permission in `detail` | todo | |
 | P1-013 | Error envelope (RFC 9457), `trace_id`, OpenTelemetry wiring | BE | 007 | Every error carries a `trace_id` resolvable to a span | todo | |
 | P1-014 | App shell, routing, auth screens, session handling | FE | 005, 011 | Access token in memory, refresh in httpOnly cookie | todo | |
-
-> **P1-003 gates the phase.** Do not onboard a pilot merchant until the restore drill has passed.
-> Everything after this point assumes merchant data is recoverable.
 
 ---
 
@@ -93,7 +93,7 @@ The differentiating work of this phase. `flows.md` §3 is the acceptance referen
 
 ---
 
-## M3 · Export, admin, pilot (weeks 10–12)
+## M3 · Export & admin (weeks 10–12)
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
@@ -107,7 +107,33 @@ The differentiating work of this phase. `flows.md` §3 is the acceptance referen
 | P1-067 | API keys screen | FE | 065 | Copy-once UI with an explicit warning | todo | |
 | P1-068 | Onboarding wizard incl. `channel_brand_ids` capture | FE | 021, 024 | Skippable and resumable at every step | todo | |
 | P1-069 | Empty states carrying the "no stock yet" message | FE | 033 | Present on product list and product editor | todo | |
+
+---
+
+## M4 · Production readiness & pilot (weeks 10–12)
+
+Moved down from `M0`, deliberately. None of it can be demonstrated today — there is no VPS and
+no domain, so `P1-001`'s acceptance has nothing to point at — and nothing in `M0`–`M3` needs it,
+because the backend develops against the host-installed services from `P1-000`.
+
+It cannot move any further than this. `P1-070` puts a real merchant's catalog on the box, and
+that must not happen on storage nobody has ever restored from.
+
+| ID | Item | Repo | Depends | Acceptance | Status | Owner |
+|---|---|---|---|---|---|---|
+| P1-001 | VPS provisioning, Docker Compose, Caddy, TLS | OPS | — | `docker compose up` serves HTTPS on the domain | todo | |
+| P1-002 | PostgreSQL 18 + Redis 8 with tuned config and resource limits | OPS | 001 | `shared_buffers` ≈ 25% RAM; per-service `cpus`/`mem_limit` set | todo | |
+| P1-003 | **pgBackRest to R2 + restore drill** | OPS | 002 | **A restore from R2 into a clean box succeeds.** Blocks all merchant data | todo | |
+| P1-004 | CI: lint, test, migration-on-snapshot, contracts drift check | BE/FE | 001 | A PR that breaks any of the four is red | todo | |
 | P1-070 | Pilot merchant onboarding: real catalog loaded | OPS | all | One merchant's real catalog is in the system | todo | |
+
+> **P1-003 gates the pilot.** `P1-070` does not start until the restore drill has passed.
+> Everything from that point on assumes merchant data is recoverable.
+
+> **`P1-001` needs a decision before it can start:** the production domain. Every document still
+> says `{domain}`. Caddy's default ACME challenge also cannot reach the box through Cloudflare's
+> proxy, so the TLS mode — DNS-01 with a Cloudflare token, or a Cloudflare Origin certificate —
+> is part of this item, not an implementation detail of it.
 
 ---
 

@@ -64,8 +64,8 @@ Cloudflare (DNS, WAF, edge rate limiting)  ──►  VPS
                                                  ├── Next.js       :3000
                                                  ├── cmd/api  ×2   :8080  (rolling restarts)
                                                  ├── cmd/worker ×1        (no ingress)
-                                                 ├── PostgreSQL 16        local NVMe volume
-                                                 └── Redis 7              local volume, AOF on
+                                                 ├── PostgreSQL 18        local NVMe volume
+                                                 └── Redis 8              local volume, AOF on
 
 Cloudflare R2  ◄── product images, exports
 ```
@@ -331,11 +331,31 @@ restore drill has been run.
 
 | Weeks | Deliverable | Exit criterion |
 |---|---|---|
-| 1–3 | VPS, Compose, Caddy, CI, migrations, `pgBackRest` to R2 | **A successful restore drill from R2 into a clean box** |
-| 3–5 | Tenancy with RLS, auth, RBAC, API conventions, OpenAPI generation | Tenant isolation suite green over every route |
+| 1–3 | Local dev services, migration runner, tenancy with RLS | `app_user` owns nothing; `FORCE RLS` on every tenant table |
+| 3–5 | Auth, RBAC, API conventions, OpenAPI generation, error envelope | Tenant isolation suite green over every route |
 | 5–8 | Brands, categories with the ltree trigger, products, variants | A category move rebases every descendant in one statement |
 | 8–10 | Variant matrix editor, media upload and derivatives | 100-cell grid saves in under 2s |
-| 10–12 | Marketplace CSV export, user management UI, pilot onboarding | One pilot merchant has their real catalog in the system |
+| 10–12 | Marketplace CSV export, user management UI | 10k variants exported in under 60s |
+| 10–12 | VPS, Caddy, TLS, CI, `pgBackRest` to R2, pilot onboarding | **A successful restore drill from R2 into a clean box**, then one pilot merchant's real catalog in the system |
+
+**The production box is provisioned last, on purpose.** The application develops against
+PostgreSQL and Redis installed directly on the developer's machine — no container, no compose
+file, nothing else running — and nothing in weeks 1–10 needs a domain, a certificate or a
+reverse proxy. Deferring the box avoids paying for an idle server and avoids deciding the TLS
+posture twice. `BACKLOG.md` §M4 holds those items.
+
+**Host services rather than containers, and the versions above rather than older ones.** A dev
+machine that already runs PostgreSQL and Redis gains nothing from a second copy of each in
+Docker — a published port is no less inspectable than a Unix socket, so the container buys only
+another runtime to keep alive. The cost of that choice is that the dev version is whatever the
+machine has, which is why the pin moved to PostgreSQL 18 and Redis 8 while there is still no box
+and no data to migrate: matching dev to prod deletes a class of bug (a 17-or-18-only construct
+reaching a 16 server) that no amount of review reliably catches. Revisit the pin only when the
+box exists.
+
+**What that deferral does not buy you is a later restore drill.** It stays where it always was:
+before any merchant's real data exists. Provisioning late compresses the window between the box
+existing and the pilot depending on it, so treat week 10 as a hard start, not a target.
 
 **Do not start Phase 2 until the restore drill has passed.** Everything after this point is
 built on the assumption that merchant data is recoverable.
