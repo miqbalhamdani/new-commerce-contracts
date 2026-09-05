@@ -1,0 +1,260 @@
+openapi: 3.1.0
+
+info:
+  title: New Commerce API
+  version: 1.1.0
+  description: |
+    Phase 1 — Catalog & Foundation.
+
+    **This file is a skeleton.** It carries the conventions from `API spec.md` §1 that every
+    endpoint depends on — authentication, the error envelope, money, pagination, optimistic
+    concurrency, rate limiting — and no endpoints at all.
+
+    Paths are added by the backlog item that owns them: `P1-011` auth, `P1-021` brands,
+    `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-040` the variant matrix,
+    `P1-043` media, `P1-060` jobs, `P1-061` export. Adding them all up front would pre-empt
+    design decisions those items are meant to make.
+
+    That leaves this file **incomplete** relative to `API spec.md` §2–§8, not in conflict with
+    it. The rule in `CLAUDE.md` still holds for anything both files describe: change one, change
+    the other, in the same commit.
+
+    `/healthz` is deliberately absent and stays that way. A liveness probe is a property of how
+    the service is deployed, not of the contract, and putting it here would make every future
+    change to it a contract change.
+
+servers:
+  - url: https://api.{domain}/v1
+    description: |
+      Production. The domain is still undecided — see `BACKLOG.md` §M4, `P1-001`.
+    variables:
+      domain:
+        default: example.com
+  - url: http://localhost:8080/v1
+    description: Local development, against the host services from `P1-000`.
+
+# Every endpoint requires a bearer token unless it opts out with `security: []`.
+# The unauthenticated ones are login, refresh and accept-invite (P1-011).
+security:
+  - bearerAuth: []
+
+paths: {}
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        A 15-minute JWT access token for UI sessions, or an API key for integrators. Both travel
+        in `Authorization: Bearer`.
+
+        The tenant is derived from the token and is **never** read from a header, query parameter
+        or request body — accepting it from the request would be a trivial cross-tenant
+        escalation.
+
+  parameters:
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size. Pairs with `cursor`; there is no `offset` in this API.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        Opaque cursor from the previous page. Cursor pagination only — a deep `offset` on a large
+        table is a sequential scan, so the parameter does not exist.
+      schema:
+        type: string
+
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: |
+        The `version` read from the resource. Required on every `PATCH`. The server checks it in
+        the `UPDATE … WHERE version = $n` predicate; a stale value is `409 version_conflict`, not
+        a silent no-op.
+
+        `version` travels here and never in the request body.
+      schema:
+        type: integer
+        minimum: 1
+
+  headers:
+
+    RateLimit-Limit:
+      description: Requests permitted in the current window.
+      schema:
+        type: integer
+
+    RateLimit-Remaining:
+      description: Requests left in the current window.
+      schema:
+        type: integer
+
+    RateLimit-Reset:
+      description: Seconds until the window resets.
+      schema:
+        type: integer
+
+  schemas:
+
+    Money:
+      type: object
+      description: |
+        An integer amount in **minor units** plus an ISO 4217 currency. `2000000` + `IDR` is
+        Rp 20.000.
+
+        Never a float and never a decimal string. IDR has no minor unit in practice, but the
+        scale of 2 is kept uniform so multi-currency is not a migration.
+      required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          examples: [19900000]
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          examples: ["IDR"]
+
+    ErrorCode:
+      type: string
+      description: |
+        The canonical error codes for this phase. The code also appears as the last segment of a
+        `Problem.type` URI, and directly in per-row results where an operation partially succeeds
+        — see `API spec.md` §6.2.
+      enum:
+        - validation_failed
+        - version_conflict
+        - duplicate_sku
+        - permission_denied
+        - not_found
+        - rate_limited
+
+    ProblemError:
+      type: object
+      description: |
+        One field-level detail inside a `Problem`. Carries whatever the specific failure needs —
+        a version conflict reports `expected` and `supplied`, a validation failure reports a
+        message — so extra properties are permitted by design.
+      required: [field]
+      properties:
+        field:
+          type: string
+          examples: ["version"]
+        detail:
+          type: string
+      additionalProperties: true
+
+    Problem:
+      type: object
+      description: |
+        RFC 9457 `application/problem+json`. Every error response in this API uses it.
+
+        `trace_id` is the OpenTelemetry trace id — a support ticket quoting it goes straight to
+        the span. There is no separate `code` field: the code is the last segment of `type`.
+      required: [type, title, status, trace_id]
+      properties:
+        type:
+          type: string
+          format: uri
+          examples: ["https://docs.example.com/errors/version-conflict"]
+        title:
+          type: string
+          examples: ["Version conflict"]
+        status:
+          type: integer
+          examples: [409]
+        detail:
+          type: string
+          examples: ["Product was modified by another user. Reload and retry."]
+        instance:
+          type: string
+          examples: ["/v1/products/01926f3a-0000-7000-8000-000000000000"]
+        trace_id:
+          type: string
+          examples: ["4bf92f3577b34da6a3ce929d0e0e4736"]
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProblemError"
+
+  responses:
+
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    Unauthorized:
+      description: Missing, expired or invalid credentials.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    Forbidden:
+      description: |
+        Authenticated but not permitted. `detail` names the permission that was required.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    NotFound:
+      description: |
+        No such resource **in this tenant**. A row belonging to another tenant is indistinguishable
+        from one that does not exist, which is the intended behaviour.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    Conflict:
+      description: |
+        `version_conflict` when `If-Match` is stale, or `duplicate_sku` when a SKU is already
+        taken within the tenant.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    UnprocessableEntity:
+      description: |
+        Validation failed. Also returned when a client sends a server-managed field on update, or
+        sends `null` where the field should simply have been omitted — those are not the same
+        thing.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    TooManyRequests:
+      description: Rate limit exceeded. See the `RateLimit-*` headers.
+      headers:
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimit-Limit"
+        RateLimit-Remaining:
+          $ref: "#/components/headers/RateLimit-Remaining"
+        RateLimit-Reset:
+          $ref: "#/components/headers/RateLimit-Reset"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
