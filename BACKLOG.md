@@ -35,7 +35,7 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-000 | Local dev services: host PostgreSQL 18 + Redis 8 | OPS | — | `make dev` connects to host PostgreSQL 18 on `:5432` and Redis 8 on `:6379`; `GET /healthz` reports both | wip | Iqbal Hamdani |
+| P1-000 | Local dev services: host PostgreSQL 18 + Redis 8 | OPS | — | `make dev` connects to host PostgreSQL 18 on `:5432` and Redis 8 on `:6379`; `GET /healthz` reports both | review | Iqbal Hamdani |
 | P1-005 | `openapi.yaml` skeleton + generators wired both repos | CT/BE/FE | 000 | `make generate` is a no-op on a clean tree in both repos | todo | |
 | P1-006 | Migration runner, `app_user` non-owning role, RLS helper | BE | 000 | `app_user` owns nothing; `FORCE RLS` on every tenant table | todo | |
 | P1-007 | `InTenantTx`, tenant context, fail-closed on missing tenant | BE | 006 | Missing tenant returns `ErrNoTenantContext`, never an empty result | todo | |
