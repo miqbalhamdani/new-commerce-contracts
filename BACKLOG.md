@@ -39,7 +39,7 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 | P1-005 | `openapi.yaml` skeleton + generators wired both repos | CT/BE/FE | 000 | `make generate` is a no-op on a clean tree in both repos | done | Iqbal Hamdani |
 | P1-006 | Migration runner, `app_user` non-owning role, RLS helper | BE | 000 | `app_user` owns nothing; `FORCE RLS` on every tenant table | done | Iqbal Hamdani |
 | P1-007 | `InTenantTx`, tenant context, fail-closed on missing tenant | BE | 006 | Missing tenant returns `ErrNoTenantContext`, never an empty result | done | Iqbal Hamdani |
-| P1-008 | **Tenant isolation test suite over every registered route** | BE | 007 | Two seeded tenants; A's token returns zero of B's rows on every route | wip | Iqbal Hamdani |
+| P1-008 | **Tenant isolation test suite over every registered route** | BE | 007 | Two seeded tenants; A's token returns zero of B's rows on every route | review | Iqbal Hamdani |
 | P1-009 | RLS-policy guard | BE | 006 | `make lint-rls` exits non-zero on a `tenant_id` table with no policy | todo | |
 | P1-010 | `tenants`, `users`, `refresh_tokens`, `api_keys` schema | BE | 006 | Matches `erd.md` §3.2 exactly | todo | |
 | P1-011 | Auth: login, refresh rotation, logout, argon2id | BE | 010 | A reused refresh token revokes the whole chain | todo | |
