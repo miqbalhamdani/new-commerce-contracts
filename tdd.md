@@ -102,7 +102,7 @@ worker. Neither needs a code change, only connection strings.
 | Migrations | `golang-migrate` | Plain up/down SQL, reviewable in a PR |
 | Queue | Redis Streams | Barely needed in Phase 1, but establishing it now avoids a retrofit in Phase 3 |
 | Object storage | Cloudflare R2 | Zero egress, S3-compatible. Product imagery is the bulk of stored bytes |
-| Front end | Next.js 16 App Router | Server Components for dense list views; client components only for the grid editors |
+| Front end | Next.js 15 App Router, Tremor | Server Components for dense list views; client components only for the grid editors |
 | Auth | JWT access (15 min) + rotating refresh, `argon2id` | Short access token keeps the RLS context fresh |
 | Observability | OpenTelemetry | Established in Phase 1 so Phase 3's webhook path is traceable from day one |
 
