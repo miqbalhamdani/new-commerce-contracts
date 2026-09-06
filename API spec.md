@@ -99,7 +99,56 @@ access token has expired.
 
 ---
 
-## 3. Users and API keys
+## 3. Roles and permissions
+
+Five roles, seeded and fixed. Phase 1 has no custom roles and no per-user overrides: a permission
+is granted by the role and by nothing else.
+
+A permission is `resource:action`. Two actions only — `read` and `write` — because a third
+(`delete`) would be a distinction without a difference here, where deletion is archival and is
+part of writing.
+
+| Permission | `owner` | `admin` | `ops` | `warehouse` | `viewer` |
+|---|:--:|:--:|:--:|:--:|:--:|
+| `products:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `products:write` | ✓ | ✓ | ✓ | | |
+| `variants:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `variants:write` | ✓ | ✓ | ✓ | | |
+| `categories:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `categories:write` | ✓ | ✓ | | | |
+| `brands:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `brands:write` | ✓ | ✓ | | | |
+| `media:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `media:write` | ✓ | ✓ | ✓ | | |
+| `exports:read` | ✓ | ✓ | ✓ | | ✓ |
+| `users:read` | ✓ | ✓ | | | |
+| `users:write` | ✓ | ✓ | | | |
+| `api_keys:read` | ✓ | ✓ | | | |
+| `api_keys:write` | ✓ | ✓ | | | |
+| `settings:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `settings:write` | ✓ | | | | |
+
+**`owner` is `admin` plus `settings:write`, and nothing else.** `flows.md` §6 is an owner giving a
+merchandiser access "without giving away billing", so the line between the two roles is the tenant's
+own settings. Everything operational an owner can do, an admin can do.
+
+**`ops` reads categories and brands but does not write them.** `flows.md` §6 has the ops user seeing
+Categories and Brands in the navigation, while §1 assigns the category and brand managers to Admin.
+Reading is what the product editor needs to attach a product to a category; restructuring the tree
+is a different job.
+
+**`warehouse` can read the catalog and change nothing.** It has no reason to open this phase at all
+(`flows.md` intro); it exists so the role is available before Phase 4 gives it stock.
+
+**`viewer` writes nothing anywhere.** A client must not render a save control it cannot use — a
+disabled button advertises a capability and generates a support ticket.
+
+A `403` names the permission that was required in `detail`, so a caller can tell "you cannot do
+this" from "you cannot do this *yet*, ask your owner for X".
+
+---
+
+## 4. Users and API keys
 
 ```
 GET    /v1/users?status=&role=
@@ -126,7 +175,7 @@ POST /v1/api-keys
 
 ---
 
-## 4. Brands
+## 5. Brands
 
 ```
 GET    /v1/brands?q=&archived=false
@@ -147,7 +196,7 @@ this phase and by the listing publisher from Phase 3 — filling it in early sav
 
 ---
 
-## 5. Categories
+## 6. Categories
 
 ```
 GET    /v1/categories?kind=category&parent_id=&depth=
@@ -176,7 +225,7 @@ Moving a category rebases every descendant's `path` in one statement. Products a
 
 ---
 
-## 6. Products and variants
+## 7. Products and variants
 
 ```
 GET    /v1/products?status=&brand_id=&category_id=&q=&limit=&cursor=
@@ -194,7 +243,7 @@ PUT    /v1/products/{id}/variant-matrix
 GET    /v1/products/export?template=&format=
 ```
 
-### 6.1 Create — what the client actually sends
+### 7.1 Create — what the client actually sends
 
 Only what the user supplied. `version` and `currency` are **absent**, not `null`:
 
@@ -225,7 +274,7 @@ POST /v1/products
 Updates send the version in the **header**, never the body: `If-Match: 1`. The server increments
 it and returns the new value; a stale value gets `409 version_conflict`.
 
-### 6.2 The variant matrix
+### 7.2 The variant matrix
 
 `PUT /v1/products/{id}/variant-matrix` saves the whole option grid in **one transaction**.
 
@@ -268,7 +317,7 @@ PUT /v1/products/{id}/variant-matrix
 `archive_missing: false` patches part of a grid without archiving the combinations that were
 not sent — used when the editor is showing a filtered view.
 
-### 6.3 Matrix versus `PATCH /v1/variants/{id}`
+### 7.3 Matrix versus `PATCH /v1/variants/{id}`
 
 Different jobs. Do not use one for the other.
 
@@ -286,7 +335,7 @@ clobber a merchandiser's concurrent edit.
 
 ---
 
-## 7. Media
+## 8. Media
 
 ```
 POST   /v1/media/presign
@@ -314,7 +363,7 @@ within ~15s. Serve them through a Cloudflare Worker on a custom domain for edge 
 
 ---
 
-## 8. Catalog export
+## 9. Catalog export
 
 The feature that makes this phase standalone-useful.
 
@@ -338,7 +387,7 @@ have been wrong in the API integration, and this is a far cheaper place to disco
 
 ---
 
-## 9. Not in this phase
+## 10. Not in this phase
 
 Requested often enough during pilot that they are worth naming explicitly:
 

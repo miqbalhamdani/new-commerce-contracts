@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 1.3.0
+  version: 1.4.0
   description: |
     Phase 1 — Catalog & Foundation.
 
@@ -15,7 +15,7 @@ info:
     jobs, `P1-061` export. Adding them all up front would pre-empt design decisions those items
     are meant to make. `P1-011` added the three auth paths below.
 
-    That leaves this file **incomplete** relative to `API spec.md` §2–§8, not in conflict with
+    That leaves this file **incomplete** relative to `API spec.md` §2–§10, not in conflict with
     it. The rule in `CLAUDE.md` still holds for anything both files describe: change one, change
     the other, in the same commit.
 
@@ -128,6 +128,31 @@ paths:
                 type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /roles:
+    get:
+      operationId: listRoles
+      summary: The five seeded roles and the permissions each grants
+      description: |
+        Fixed and identical for every tenant. Phase 1 has no custom roles and no per-user
+        overrides, so this is a constant -- it exists so a client can render a role picker and
+        explain what a role means without hardcoding the matrix from `API spec.md` §3.
+
+        Requires `users:read`, because it is part of the team-management surface. An `ops` user
+        gets `403` naming that permission, which is `flows.md` §6's acceptance criterion.
+      responses:
+        "200":
+          description: The seeded roles.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
 components:
 
@@ -276,6 +301,23 @@ components:
           maxLength: 3
           examples: ["IDR"]
 
+    Role:
+      type: object
+      description: One of the five seeded roles and everything it grants.
+      required: [name, permissions]
+      properties:
+        name:
+          type: string
+          enum: [owner, admin, ops, warehouse, viewer]
+        description:
+          type: string
+          description: One line a client can show next to the role in a picker.
+        permissions:
+          type: array
+          items:
+            type: string
+            examples: ["products:read"]
+
     Money:
       type: object
       description: |
@@ -301,7 +343,7 @@ components:
       description: |
         The canonical error codes for this phase. The code also appears as the last segment of a
         `Problem.type` URI, and directly in per-row results where an operation partially succeeds
-        — see `API spec.md` §6.2.
+        — see `API spec.md` §7.2.
       enum:
         - validation_failed
         - version_conflict
@@ -376,7 +418,10 @@ components:
 
     Forbidden:
       description: |
-        Authenticated but not permitted. `detail` names the permission that was required.
+        Authenticated but not permitted. **`detail` names the permission that was required**, so a
+        caller can tell "you cannot do this" from "you cannot do this yet, ask for `users:write`".
+        A client should not render an action it lacks the permission for at all -- a disabled
+        control advertises a capability and generates a support ticket.
       content:
         application/problem+json:
           schema:

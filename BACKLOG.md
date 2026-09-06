@@ -42,8 +42,8 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 | P1-008 | **Tenant isolation test suite over every registered route** | BE | 007 | Two seeded tenants; A's token returns zero of B's rows on every route | done | Iqbal Hamdani |
 | P1-009 | RLS-policy guard | BE | 006 | `make lint-rls` exits non-zero on a `tenant_id` table with no policy | done | Iqbal Hamdani |
 | P1-010 | `tenants`, `users`, `refresh_tokens`, `api_keys` schema | BE | 006 | Matches `erd.md` §3.2 exactly | done | Iqbal Hamdani |
-| P1-011 | Auth: login, refresh rotation, logout, argon2id | BE | 010 | A reused refresh token revokes the whole chain | review | Iqbal Hamdani |
-| P1-012 | RBAC: 5 seeded roles, `resource:action` checks at handler boundary | BE | 011 | `403` names the required permission in `detail` | todo | |
+| P1-011 | Auth: login, refresh rotation, logout, argon2id | BE | 010 | A reused refresh token revokes the whole chain | done | Iqbal Hamdani |
+| P1-012 | RBAC: 5 seeded roles, `resource:action` checks at handler boundary | BE | 011 | `403` names the required permission in `detail` | wip | Iqbal Hamdani |
 | P1-013 | Error envelope (RFC 9457), `trace_id`, OpenTelemetry wiring | BE | 007 | Every error carries a `trace_id` resolvable to a span | todo | |
 | P1-014 | App shell, routing, auth screens, session handling | FE | 005, 011 | Access token in memory, refresh in httpOnly cookie | todo | |
 
@@ -54,7 +54,7 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
 | P1-020 | `brands` schema + composite FK to tenant | BE | 010 | `products_same_tenant_as_brand` rejects a cross-tenant brand | todo | |
-| P1-021 | Brands CRUD API incl. `channel_brand_ids` | BE | 020 | Matches `API spec.md` §4 | todo | |
+| P1-021 | Brands CRUD API incl. `channel_brand_ids` | BE | 020 | Matches `API spec.md` §5 | todo | |
 | P1-022 | `categories` schema, ltree, slugify, path triggers | BE | 010 | A move rebases every descendant in one statement | todo | |
 | P1-023 | Category cycle guard + sibling slug collision handling | BE | 022 | Moving a node under its own descendant raises | todo | |
 | P1-024 | Categories API, `kind` filter, depth-limited fetch | BE | 022 | `path` is rejected with `422` if a client sends it | todo | |
