@@ -78,9 +78,24 @@ POST /v1/auth/login
               "currency": "IDR" } }
 ```
 
+**The tenant is resolved from the user row, not from the request.** `email` is unique across the
+whole system (`erd.md` §3.2), so the email alone identifies exactly one user and therefore exactly
+one tenant. Login accepts no tenant, workspace or subdomain parameter, and adding one would be a
+breaking change to this endpoint.
+
+That lookup is the one read in the system that crosses tenants. `users` carries `FORCE ROW LEVEL
+SECURITY`, and login runs before any tenant context exists, so a normal query would match zero
+rows. It goes through a single `SECURITY DEFINER` function that takes an email and returns only
+`id`, `tenant_id`, `password_hash`, `status` and `role` — never a name, never anything else on the
+row. Nothing else in the system may read across tenants from a request path (`tdd.md` §3.3).
+
 Refresh rotates: each call issues a new refresh token and revokes the old one. **A reused
 refresh token means theft** — the whole rotation chain is revoked and the user is signed out
 everywhere.
+
+`POST /v1/auth/refresh` and `POST /v1/auth/logout` both read the refresh token from the cookie,
+never from the body. `refresh` is unauthenticated by necessity — it is what you call *because* the
+access token has expired.
 
 ---
 

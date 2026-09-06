@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 1.1.0
+  version: 1.3.0
   description: |
     Phase 1 — Catalog & Foundation.
 
@@ -10,10 +10,10 @@ info:
     endpoint depends on — authentication, the error envelope, money, pagination, optimistic
     concurrency, rate limiting — and no endpoints at all.
 
-    Paths are added by the backlog item that owns them: `P1-011` auth, `P1-021` brands,
-    `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-040` the variant matrix,
-    `P1-043` media, `P1-060` jobs, `P1-061` export. Adding them all up front would pre-empt
-    design decisions those items are meant to make.
+    Paths are added by the backlog item that owns them: `P1-021` brands, `P1-024` categories,
+    `P1-028` products, `P1-029` variants, `P1-040` the variant matrix, `P1-043` media, `P1-060`
+    jobs, `P1-061` export. Adding them all up front would pre-empt design decisions those items
+    are meant to make. `P1-011` added the three auth paths below.
 
     That leaves this file **incomplete** relative to `API spec.md` §2–§8, not in conflict with
     it. The rule in `CLAUDE.md` still holds for anything both files describe: change one, change
@@ -34,11 +34,100 @@ servers:
     description: Local development, against the host services from `P1-000`.
 
 # Every endpoint requires a bearer token unless it opts out with `security: []`.
-# The unauthenticated ones are login, refresh and accept-invite (P1-011).
+# The unauthenticated ones are login and refresh; accept-invite joins them when P1-064
+# adds it.
 security:
   - bearerAuth: []
 
-paths: {}
+paths:
+
+  /auth/login:
+    post:
+      operationId: login
+      summary: Exchange an email and password for an access token
+      description: |
+        The tenant is resolved from the user row -- `email` is unique across the whole system, so
+        it identifies exactly one user and therefore exactly one tenant. There is deliberately no
+        tenant, workspace or subdomain parameter.
+
+        On success the refresh token is set as an httpOnly, Secure, SameSite=Lax cookie. It is
+        never in the response body, where a script could read it.
+
+        A wrong password, an unknown email and a disabled account all return the same `401`. Any
+        difference between them tells an attacker which emails exist.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Signed in.
+          headers:
+            Set-Cookie:
+              description: The refresh token, httpOnly, Secure, SameSite=Lax.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/refresh:
+    post:
+      operationId: refresh
+      summary: Rotate the refresh token and issue a new access token
+      description: |
+        Reads the refresh token from the cookie, never from the body. Unauthenticated by
+        necessity -- this is what you call *because* the access token has expired.
+
+        Each call issues a new refresh token and revokes the one presented. **Presenting a token
+        that was already rotated means it was stolen**: the entire rotation chain is revoked and
+        every session for that user ends, rather than that one request being rejected.
+      security: []
+      responses:
+        "200":
+          description: Rotated.
+          headers:
+            Set-Cookie:
+              description: The new refresh token. The old one is revoked.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Revoke the current refresh token
+      description: |
+        Revokes the refresh token in the cookie and clears it. The access token is not revoked --
+        it is stateless and expires on its own within 15 minutes.
+
+        Idempotent: logging out twice, or with no cookie at all, is still `204`. There is nothing
+        useful to tell a caller about a session that is already gone.
+      responses:
+        "204":
+          description: Signed out.
+          headers:
+            Set-Cookie:
+              description: Clears the refresh token cookie.
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
 components:
 
@@ -110,6 +199,82 @@ components:
         type: integer
 
   schemas:
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          examples: ["ops@erigo.co.id"]
+        password:
+          type: string
+          format: password
+          minLength: 8
+
+    Session:
+      type: object
+      description: |
+        Returned by both login and refresh. Carries everything the client needs to render a
+        signed-in shell without a second request.
+
+        The refresh token is **not** here -- it is in an httpOnly cookie, out of reach of any
+        script on the page.
+      required: [access_token, expires_in, user, tenant]
+      properties:
+        access_token:
+          type: string
+          description: JWT. Held in memory only, never in localStorage.
+        expires_in:
+          type: integer
+          description: Seconds until the access token expires.
+          examples: [900]
+        user:
+          $ref: "#/components/schemas/SessionUser"
+        tenant:
+          $ref: "#/components/schemas/SessionTenant"
+
+    SessionUser:
+      type: object
+      required: [id, name, role, permissions]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        role:
+          type: string
+          enum: [owner, admin, ops, warehouse, viewer]
+        permissions:
+          type: array
+          description: |
+            `resource:action` strings the role grants. The client hides actions it does not find
+            here rather than disabling them -- a button that 403s advertises a capability the user
+            does not have.
+          items:
+            type: string
+            examples: ["products:read"]
+
+    SessionTenant:
+      type: object
+      required: [id, name, timezone, currency]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        timezone:
+          type: string
+          description: IANA name. Applied at render time only; the wire is always UTC.
+          examples: ["Asia/Jakarta"]
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          examples: ["IDR"]
 
     Money:
       type: object

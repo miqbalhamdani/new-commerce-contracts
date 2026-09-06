@@ -92,8 +92,18 @@ CREATE TABLE users (
                   CHECK (status IN ('invited','active','disabled')),
     last_login_at timestamptz,
     created_at    timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (tenant_id, email)
+    UNIQUE (email)
 );
+-- Email is unique across the whole system, not per tenant.
+--
+-- The alternative, UNIQUE (tenant_id, email), lets one person hold accounts at
+-- several merchants -- but it makes login unanswerable. `POST /v1/auth/login`
+-- carries only an email and a password, so with the same email at two tenants
+-- there is nothing in the request to choose between them. Global uniqueness
+-- makes the user row itself say which tenant it belongs to.
+--
+-- The cost is real and accepted: an agency managing two merchants needs two
+-- email addresses. Revisit only alongside a login flow that carries a workspace.
 ALTER TABLE tenants ADD CONSTRAINT tenants_id_uq UNIQUE (id);
 
 CREATE TABLE refresh_tokens (
