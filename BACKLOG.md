@@ -45,7 +45,7 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 | P1-011 | Auth: login, refresh rotation, logout, argon2id | BE | 010 | A reused refresh token revokes the whole chain | done | Iqbal Hamdani |
 | P1-012 | RBAC: 5 seeded roles, `resource:action` checks at handler boundary | BE | 011 | `403` names the required permission in `detail` | done | Iqbal Hamdani |
 | P1-013 | Error envelope (RFC 9457), `trace_id`, OpenTelemetry wiring | BE | 007 | Every error carries a `trace_id` resolvable to a span | done | Iqbal Hamdani |
-| P1-014 | App shell, routing, auth screens, session handling | FE | 005, 011 | Access token in memory, refresh in httpOnly cookie | wip | Iqbal Hamdani |
+| P1-014 | App shell, routing, auth screens, session handling | FE | 005, 011 | Access token in memory, refresh in httpOnly cookie | review | Iqbal Hamdani |
 
 ---
 
