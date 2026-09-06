@@ -43,7 +43,7 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 | P1-009 | RLS-policy guard | BE | 006 | `make lint-rls` exits non-zero on a `tenant_id` table with no policy | done | Iqbal Hamdani |
 | P1-010 | `tenants`, `users`, `refresh_tokens`, `api_keys` schema | BE | 006 | Matches `erd.md` §3.2 exactly | done | Iqbal Hamdani |
 | P1-011 | Auth: login, refresh rotation, logout, argon2id | BE | 010 | A reused refresh token revokes the whole chain | done | Iqbal Hamdani |
-| P1-012 | RBAC: 5 seeded roles, `resource:action` checks at handler boundary | BE | 011 | `403` names the required permission in `detail` | wip | Iqbal Hamdani |
+| P1-012 | RBAC: 5 seeded roles, `resource:action` checks at handler boundary | BE | 011 | `403` names the required permission in `detail` | review | Iqbal Hamdani |
 | P1-013 | Error envelope (RFC 9457), `trace_id`, OpenTelemetry wiring | BE | 007 | Every error carries a `trace_id` resolvable to a span | todo | |
 | P1-014 | App shell, routing, auth screens, session handling | FE | 005, 011 | Access token in memory, refresh in httpOnly cookie | todo | |
 
