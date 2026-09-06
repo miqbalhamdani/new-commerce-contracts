@@ -84,6 +84,12 @@ service's job, and each is a way to lose a merchant's data:
   `effective_cache_size` ≈ 50%, `max_connections` = 100 with hard pool caps in pgx.
 - **Disk headroom.** Alert at 70%.
 
+**One origin, two processes.** Caddy serves the Next.js app at `/` and proxies `/v1/*` to
+`cmd/api` on the same domain, so the browser only ever talks to one origin. That is what lets the
+refresh token be an ordinary `SameSite=Lax` cookie with no CORS anywhere in the system. Local
+development reproduces it with a Next.js rewrite rather than by relaxing anything on the API --
+an API that has to know about browser origins is one that can be wrong about them.
+
 **When to move off.** PostgreSQL first — it is the component whose failure loses data. Then the
 worker. Neither needs a code change, only connection strings.
 
@@ -96,7 +102,7 @@ worker. Neither needs a code change, only connection strings.
 | Migrations | `golang-migrate` | Plain up/down SQL, reviewable in a PR |
 | Queue | Redis Streams | Barely needed in Phase 1, but establishing it now avoids a retrofit in Phase 3 |
 | Object storage | Cloudflare R2 | Zero egress, S3-compatible. Product imagery is the bulk of stored bytes |
-| Front end | Next.js 15 App Router | Server Components for dense list views; client components only for the grid editors |
+| Front end | Next.js 16 App Router | Server Components for dense list views; client components only for the grid editors |
 | Auth | JWT access (15 min) + rotating refresh, `argon2id` | Short access token keeps the RLS context fresh |
 | Observability | OpenTelemetry | Established in Phase 1 so Phase 3's webhook path is traceable from day one |
 
