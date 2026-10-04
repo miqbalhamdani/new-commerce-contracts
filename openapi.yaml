@@ -6,7 +6,7 @@ info:
   description: |
     Phase 1 — Catalog & Foundation.
 
-    **This file is a skeleton.** It carries the conventions from `API spec.md` §1 that every
+    **This file is a skeleton.** It carries the conventions from `03-api-spec.md` §1 that every
     endpoint depends on — authentication, the error envelope, money, pagination, optimistic
     concurrency, rate limiting — and no endpoints at all.
 
@@ -15,7 +15,7 @@ info:
     jobs, `P1-061` export. Adding them all up front would pre-empt design decisions those items
     are meant to make. `P1-011` added the three auth paths below.
 
-    That leaves this file **incomplete** relative to `API spec.md` §2–§10, not in conflict with
+    That leaves this file **incomplete** relative to `03-api-spec.md` §2–§10, not in conflict with
     it. The rule in `CLAUDE.md` still holds for anything both files describe: change one, change
     the other, in the same commit.
 
@@ -26,7 +26,7 @@ info:
 servers:
   - url: https://api.{domain}/v1
     description: |
-      Production. The domain is still undecided — see `BACKLOG.md` §M4, `P1-001`.
+      Production. The domain is still undecided — see `05-backlog.md` §M4, `P1-001`.
     variables:
       domain:
         default: example.com
@@ -136,10 +136,10 @@ paths:
       description: |
         Fixed and identical for every tenant. Phase 1 has no custom roles and no per-user
         overrides, so this is a constant -- it exists so a client can render a role picker and
-        explain what a role means without hardcoding the matrix from `API spec.md` §3.
+        explain what a role means without hardcoding the matrix from `03-api-spec.md` §3.
 
         Requires `users:read`, because it is part of the team-management surface. An `ops` user
-        gets `403` naming that permission, which is `flows.md` §6's acceptance criterion.
+        gets `403` naming that permission, which is `04-flows.md` §6's acceptance criterion.
       responses:
         "200":
           description: The seeded roles.
@@ -343,7 +343,7 @@ components:
       description: |
         The canonical error codes for this phase. The code also appears as the last segment of a
         `Problem.type` URI, and directly in per-row results where an operation partially succeeds
-        — see `API spec.md` §7.2.
+        — see `03-api-spec.md` §7.2.
       enum:
         - validation_failed
         - version_conflict

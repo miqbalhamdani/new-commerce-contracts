@@ -348,7 +348,7 @@ restore drill has been run.
 PostgreSQL and Redis installed directly on the developer's machine — no container, no compose
 file, nothing else running — and nothing in weeks 1–10 needs a domain, a certificate or a
 reverse proxy. Deferring the box avoids paying for an idle server and avoids deciding the TLS
-posture twice. `BACKLOG.md` §M4 holds those items.
+posture twice. `05-backlog.md` §M4 holds those items.
 
 **Host services rather than containers, and the versions above rather than older ones.** A dev
 machine that already runs PostgreSQL and Redis gains nothing from a second copy of each in

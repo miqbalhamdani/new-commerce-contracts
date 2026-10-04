@@ -14,25 +14,25 @@ then fix the code.
 
 | File | Answers | Authoritative for |
 |---|---|---|
-| `tdd.md` | Why this phase exists, architecture, tenancy, domain rules, non-functionals | Architecture and invariants |
-| `erd.md` | Tables, columns, indexes, constraints, triggers | The database shape |
-| `API spec.md` | Conventions, endpoints, payloads, error codes | The HTTP contract, in prose |
+| `01-tdd.md` | Why this phase exists, architecture, tenancy, domain rules, non-functionals | Architecture and invariants |
+| `02-erd.md` | Tables, columns, indexes, constraints, triggers | The database shape |
+| `03-api-spec.md` | Conventions, endpoints, payloads, error codes | The HTTP contract, in prose |
 | `openapi.yaml` | The same contract, machine-readable | Code generation in both repos |
-| `flows.md` | Screens, journeys, acceptance criteria | What "done" means for a feature |
-| `BACKLOG.md` | Every feature, ordered, with status | What to build next |
+| `04-flows.md` | Screens, journeys, acceptance criteria | What "done" means for a feature |
+| `05-backlog.md` | Every feature, ordered, with status | What to build next |
 
 `openapi.yaml` is **hand-authored here**, not generated from backend code. That inversion is the
 whole point of this repo: the backend conforms to the contract rather than the contract
 documenting whatever the backend happens to do.
 
-`API spec.md` and `openapi.yaml` must agree. If you change one, change the other in the same
+`03-api-spec.md` and `openapi.yaml` must agree. If you change one, change the other in the same
 commit. CI fails the PR otherwise.
 
 ---
 
 ## What does NOT belong here
 
-- Migrations. `erd.md` describes the schema; `backend/db/migrations/` implements it.
+- Migrations. `02-erd.md` describes the schema; `backend/db/migrations/` implements it.
 - Go or TypeScript source of any kind.
 - Component designs, CSS, copy decks.
 - Deployment scripts, secrets, environment config.
@@ -69,7 +69,7 @@ that into a mystery.
 ```
 
 A contract change with no consuming PR within a week is a smell — either the change was
-speculative, or someone forgot. `BACKLOG.md` is where that is tracked.
+speculative, or someone forgot. `05-backlog.md` is where that is tracked.
 
 ---
 
@@ -91,7 +91,7 @@ explicit decision, not a PR comment.
   the same thing.
 - **Concurrency** is `version` + the `If-Match` header on every `PATCH`.
 - **There is no quantity column on `variants`, in any phase.** Stock is a property of
-  (variant, location) and arrives in Phase 4 as an append-only ledger. See `erd.md` §4.2.
+  (variant, location) and arrives in Phase 4 as an append-only ledger. See `02-erd.md` §4.2.
 
 ---
 
@@ -107,11 +107,11 @@ standalone value without needing channels. It generates a file the merchant uplo
 
 ## Working in this repo
 
-- **Read before writing.** `tdd.md` §3 (tenancy) and `erd.md` §2 (conventions) explain most
+- **Read before writing.** `01-tdd.md` §3 (tenancy) and `02-erd.md` §2 (conventions) explain most
   "why is it like this" questions.
 - **Prose is part of the contract.** The paragraphs explaining *why* a decision was made are
   what stop the next person undoing it. Do not strip them to make a doc shorter.
 - **One concern per PR.** A schema change and an endpoint change in one PR cannot be reviewed
   properly and cannot be reverted separately.
-- **Update `BACKLOG.md` in the same PR** that changes scope. A backlog that lags the contracts is
+- **Update `05-backlog.md` in the same PR** that changes scope. A backlog that lags the contracts is
   worse than no backlog.

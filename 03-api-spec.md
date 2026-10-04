@@ -79,7 +79,7 @@ POST /v1/auth/login
 ```
 
 **The tenant is resolved from the user row, not from the request.** `email` is unique across the
-whole system (`erd.md` §3.2), so the email alone identifies exactly one user and therefore exactly
+whole system (`02-erd.md` §3.2), so the email alone identifies exactly one user and therefore exactly
 one tenant. Login accepts no tenant, workspace or subdomain parameter, and adding one would be a
 breaking change to this endpoint.
 
@@ -87,7 +87,7 @@ That lookup is the one read in the system that crosses tenants. `users` carries 
 SECURITY`, and login runs before any tenant context exists, so a normal query would match zero
 rows. It goes through a single `SECURITY DEFINER` function that takes an email and returns only
 `id`, `tenant_id`, `password_hash`, `status` and `role` — never a name, never anything else on the
-row. Nothing else in the system may read across tenants from a request path (`tdd.md` §3.3).
+row. Nothing else in the system may read across tenants from a request path (`01-tdd.md` §3.3).
 
 Refresh rotates: each call issues a new refresh token and revokes the old one. **A reused
 refresh token means theft** — the whole rotation chain is revoked and the user is signed out
@@ -128,17 +128,17 @@ part of writing.
 | `settings:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `settings:write` | ✓ | | | | |
 
-**`owner` is `admin` plus `settings:write`, and nothing else.** `flows.md` §6 is an owner giving a
+**`owner` is `admin` plus `settings:write`, and nothing else.** `04-flows.md` §6 is an owner giving a
 merchandiser access "without giving away billing", so the line between the two roles is the tenant's
 own settings. Everything operational an owner can do, an admin can do.
 
-**`ops` reads categories and brands but does not write them.** `flows.md` §6 has the ops user seeing
+**`ops` reads categories and brands but does not write them.** `04-flows.md` §6 has the ops user seeing
 Categories and Brands in the navigation, while §1 assigns the category and brand managers to Admin.
 Reading is what the product editor needs to attach a product to a category; restructuring the tree
 is a different job.
 
 **`warehouse` can read the catalog and change nothing.** It has no reason to open this phase at all
-(`flows.md` intro); it exists so the role is available before Phase 4 gives it stock.
+(`04-flows.md` intro); it exists so the role is available before Phase 4 gives it stock.
 
 **`viewer` writes nothing anywhere.** A client must not render a save control it cannot use — a
 disabled button advertises a capability and generates a support ticket.

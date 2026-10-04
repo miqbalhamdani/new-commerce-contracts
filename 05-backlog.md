@@ -41,7 +41,7 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 | P1-007 | `InTenantTx`, tenant context, fail-closed on missing tenant | BE | 006 | Missing tenant returns `ErrNoTenantContext`, never an empty result | done | Iqbal Hamdani |
 | P1-008 | **Tenant isolation test suite over every registered route** | BE | 007 | Two seeded tenants; A's token returns zero of B's rows on every route | done | Iqbal Hamdani |
 | P1-009 | RLS-policy guard | BE | 006 | `make lint-rls` exits non-zero on a `tenant_id` table with no policy | done | Iqbal Hamdani |
-| P1-010 | `tenants`, `users`, `refresh_tokens`, `api_keys` schema | BE | 006 | Matches `erd.md` §3.2 exactly | done | Iqbal Hamdani |
+| P1-010 | `tenants`, `users`, `refresh_tokens`, `api_keys` schema | BE | 006 | Matches `02-erd.md` §3.2 exactly | done | Iqbal Hamdani |
 | P1-011 | Auth: login, refresh rotation, logout, argon2id | BE | 010 | A reused refresh token revokes the whole chain | done | Iqbal Hamdani |
 | P1-012 | RBAC: 5 seeded roles, `resource:action` checks at handler boundary | BE | 011 | `403` names the required permission in `detail` | done | Iqbal Hamdani |
 | P1-013 | Error envelope (RFC 9457), `trace_id`, OpenTelemetry wiring | BE | 007 | Every error carries a `trace_id` resolvable to a span | done | Iqbal Hamdani |
@@ -54,17 +54,17 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
 | P1-020 | `brands` schema + composite FK to tenant | BE | 010 | `products_same_tenant_as_brand` rejects a cross-tenant brand | todo | |
-| P1-021 | Brands CRUD API incl. `channel_brand_ids` | BE | 020 | Matches `API spec.md` §5 | todo | |
+| P1-021 | Brands CRUD API incl. `channel_brand_ids` | BE | 020 | Matches `03-api-spec.md` §5 | todo | |
 | P1-022 | `categories` schema, ltree, slugify, path triggers | BE | 010 | A move rebases every descendant in one statement | todo | |
 | P1-023 | Category cycle guard + sibling slug collision handling | BE | 022 | Moving a node under its own descendant raises | todo | |
 | P1-024 | Categories API, `kind` filter, depth-limited fetch | BE | 022 | `path` is rejected with `422` if a client sends it | todo | |
-| P1-025 | `products` schema incl. `attributes`, `option_names` | BE | 020 | Matches `erd.md` §3.3 | todo | |
+| P1-025 | `products` schema incl. `attributes`, `option_names` | BE | 020 | Matches `02-erd.md` §3.3 | todo | |
 | P1-026 | `variants` schema, partial unique SKU index, composite FK | BE | 025 | Many null SKUs allowed; non-null unique per tenant | todo | |
 | P1-027 | `product_categories` join, multi-`kind` membership | BE | 022, 025 | One product in 3 trees of different kind simultaneously | todo | |
 | P1-028 | Products CRUD, `If-Match`, server-managed field rejection | BE | 025 | `null` fails validation; omitted takes the default | todo | |
 | P1-029 | Variants CRUD | BE | 026 | Duplicate SKU returns `409 duplicate_sku` | todo | |
 | P1-030 | Product list: search (trigram), filters, cursor pagination | BE | 028 | p95 < 600ms with 10k products | todo | |
-| P1-031 | Brand manager screen | FE | 021 | `flows.md` §2 acceptance | todo | |
+| P1-031 | Brand manager screen | FE | 021 | `04-flows.md` §2 acceptance | todo | |
 | P1-032 | Category manager: tree, drag-to-move, confirm dialog | FE | 024 | Dialog states that product assignments are unaffected | todo | |
 | P1-033 | Product list screen: search, filters, saved state | FE | 030 | Selection survives pagination and filtering | todo | |
 | P1-034 | Product editor: fields, brand select, category multi-select | FE | 028 | Unsaved-changes prompt on navigate away | todo | |
@@ -73,7 +73,7 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 
 ## M2 · Variant matrix & media (weeks 8–10)
 
-The differentiating work of this phase. `flows.md` §3 is the acceptance reference.
+The differentiating work of this phase. `04-flows.md` §3 is the acceptance reference.
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
@@ -89,7 +89,7 @@ The differentiating work of this phase. `flows.md` §3 is the acceptance referen
 | P1-049 | Publish check on `draft → active` | BE/FE | 040, 043 | Every variant has SKU + price; ≥1 image; ≥1 category | todo | |
 
 > **P1-049 is where the nullable SKU is enforced.** It is a publish-path check, not a table
-> constraint — drafting must stay frictionless. See `erd.md` §4.1.
+> constraint — drafting must stay frictionless. See `02-erd.md` §4.1.
 
 ---
 
