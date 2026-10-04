@@ -1,382 +1,408 @@
-# Phase 1 — Catalog & Foundation · Business Rules
+# Fase 1 — Catalog & Foundation · Aturan Bisnis
 
-**Every rule in this phase, numbered.** Each rule is written here once. `01-product.md`,
-`03-erd.md`, `04-api-spec.md` and `05-backlog.md` cite rules by id (`BR-038`) and do not restate
-them. Tests should cite them too.
+**Semua aturan di fase ini, bernomor.** Setiap aturan ditulis sekali di sini. `01-product-requirements.md`,
+`03-erd.md`, `04-api-spec.md`, dan `05-backlog.md` merujuk aturan lewat id-nya (`BR-038`) dan tidak
+menulis ulang isinya. Test juga sebaiknya merujuk id ini.
 
-A rule states what must be true, followed by a short note on why. The mechanism that enforces it
-lives in the ERD or the API spec.
+Sebuah aturan menyatakan apa yang harus benar, lalu diikuti catatan singkat soal alasannya.
+Mekanisme yang menegakkannya ada di ERD atau API spec.
 
-Ids are grouped by area and never reused: `001–019` platform · `020–029` auth & team ·
-`030–049` catalog · `050–059` media · `060–069` export.
+Id dikelompokkan per area dan tidak pernah dipakai ulang: `001–019` platform · `020–029` auth & tim ·
+`030–049` katalog · `050–059` media · `060–069` ekspor.
 
 ---
 
 ## 1. Platform
 
-These hold in every phase. Changing one is a breaking change to both code repos.
+Aturan ini berlaku di setiap fase. Mengubah salah satunya adalah perubahan yang merusak kedua repo
+kode.
 
-### BR-001 The database enforces tenant isolation
-Every tenant-owned table has `tenant_id`, `ENABLE` **and** `FORCE ROW LEVEL SECURITY`, and the
-`tenant_isolation` policy. The application connects as `app_user`, which owns nothing, so RLS
-always applies to it. CI fails if a table with `tenant_id` has no enabled policy.
+### BR-001 Database yang menegakkan isolasi tenant
+Setiap tabel milik tenant punya `tenant_id`, `ENABLE` **dan** `FORCE ROW LEVEL SECURITY`, serta
+policy `tenant_isolation`. Aplikasi terhubung sebagai `app_user`, yang tidak memiliki apa pun,
+sehingga RLS selalu berlaku padanya. CI gagal kalau ada tabel ber-`tenant_id` tanpa policy aktif.
 
-*Why:* one forgotten `WHERE tenant_id = $1` is a cross-tenant leak, and code review can't
-reliably catch that kind of bug. `FORCE` matters because without it the table owner, which is the
-role migrations run as, bypasses its own policy.
+*Kenapa:* satu `WHERE tenant_id = $1` yang terlupa adalah kebocoran lintas tenant, dan code review
+tidak bisa diandalkan untuk menangkap bug semacam itu. `FORCE` penting karena tanpanya pemilik
+tabel, yaitu peran yang menjalankan migrasi, melewati policy-nya sendiri.
 
-### BR-002 Tenant context is set per transaction and fails closed
-The tenant is set with `set_config('app.tenant_id', …, true)` inside each transaction, never per
-connection. A query with no tenant context returns `ErrNoTenantContext`, never an empty result.
+### BR-002 Konteks tenant disetel per transaksi dan gagal tertutup
+Tenant disetel dengan `set_config('app.tenant_id', …, true)` di dalam setiap transaksi, tidak
+pernah per koneksi. Query tanpa konteks tenant mengembalikan `ErrNoTenantContext`, tidak pernah
+hasil kosong.
 
-*Why:* pgx pools connections, so a `SET` on the connection would carry over into the next
-request's tenant. Without the error, missing context looks like "no rows", which is safe but very
-confusing to debug.
+*Kenapa:* pgx memakai pool koneksi, jadi `SET` di level koneksi akan terbawa ke tenant request
+berikutnya. Tanpa error itu, konteks yang hilang terlihat seperti "tidak ada baris". Itu aman,
+tetapi sangat membingungkan saat debugging.
 
-### BR-003 The tenant comes from the token, never from the request
-No header, query parameter or body field can choose the tenant. The only read across tenants on a
-request path is the login lookup. It goes through one `SECURITY DEFINER` function that returns
-only `id`, `tenant_id`, `password_hash`, `status` and `role`. Cross-tenant admin work uses a
-separate `BYPASSRLS` role and pool, is audit-logged, and is never reachable from a request.
+### BR-003 Tenant berasal dari token, tidak pernah dari request
+Tidak ada header, query parameter, atau field body yang bisa memilih tenant. Satu-satunya
+pembacaan lintas tenant di jalur request adalah lookup saat login. Lookup itu lewat satu fungsi
+`SECURITY DEFINER` yang hanya mengembalikan `id`, `tenant_id`, `password_hash`, `status`, dan
+`role`. Pekerjaan admin lintas tenant memakai peran dan pool `BYPASSRLS` terpisah, dicatat di audit
+log, dan tidak pernah bisa dijangkau dari request.
 
-*Why:* a tenant read from the request would be trivial cross-tenant escalation.
+*Kenapa:* tenant yang dibaca dari request membuka eskalasi lintas tenant yang sepele.
 
-### BR-004 A copied `tenant_id` on a child table is guarded by a composite foreign key
-When a child table carries `tenant_id` that could be derived from its parent (`variants` →
-`products`), a foreign key on `(parent_id, tenant_id)` makes it impossible for the two to
-disagree.
+### BR-004 `tenant_id` salinan di tabel anak dijaga composite foreign key
+Kalau tabel anak membawa `tenant_id` yang sebenarnya bisa diturunkan dari induknya (`variants` →
+`products`), foreign key pada `(parent_id, tenant_id)` membuat keduanya mustahil berbeda.
 
-*Why:* without the copy, the RLS policy would be a correlated subquery on every row, and per-tenant
-uniqueness (`UNIQUE (tenant_id, sku)`) couldn't be expressed. Foreign-key checks bypass RLS, so a
-plain FK would accept another tenant's parent.
+*Kenapa:* tanpa salinan itu, policy RLS harus berupa correlated subquery di setiap baris, dan
+keunikan per tenant (`UNIQUE (tenant_id, sku)`) tidak bisa dinyatakan. Pengecekan foreign key
+melewati RLS, jadi FK biasa akan menerima induk milik tenant lain.
 
-### BR-005 Keys are UUID v7, generated by the application
-No sequential integer id appears in any API.
+### BR-005 Key berupa UUID v7, dibuat oleh aplikasi
+Tidak ada id integer berurutan di API mana pun.
 
-*Why:* time-ordered UUIDs keep B-tree inserts at the end of the index; sequential ids leak business
-volume.
+*Kenapa:* UUID yang terurut waktu menjaga insert B-tree tetap di ujung index; id berurutan
+membocorkan volume bisnis.
 
-### BR-006 Money is an integer amount plus a currency
-`{"amount": <bigint minor units>, "currency": "IDR"}`, never a float or a decimal string. Omitting
-`currency` gives the tenant's currency (BR-029).
+### BR-006 Uang adalah jumlah integer ditambah mata uang
+`{"amount": <bigint minor units>, "currency": "IDR"}`, tidak pernah float atau string desimal.
+Kalau `currency` tidak dikirim, dipakai mata uang tenant (BR-029).
 
-*Why:* floats lose cents. Keeping two minor-unit digits for IDR too means adding another currency
-needs no migration.
+*Kenapa:* float kehilangan sen. Menyimpan dua digit minor unit untuk IDR juga berarti menambah
+mata uang lain tidak butuh migrasi.
 
-### BR-007 Time is UTC on the wire and in the database
-`timestamptz` in UTC; RFC 3339 with offset on the wire. The tenant's timezone is applied only when
-rendering.
+### BR-007 Waktu dalam UTC di wire dan di database
+`timestamptz` dalam UTC; RFC 3339 dengan offset di wire. Zona waktu tenant hanya diterapkan saat
+render.
 
-### BR-008 Server-managed fields are never accepted
-`id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path` and `slug` are set by the server.
-A client that sends one gets `422`, **on create and on update alike**.
+### BR-008 Field yang dikelola server tidak pernah diterima
+`id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, dan `slug` diisi oleh server.
+Klien yang mengirim salah satunya mendapat `422`, **baik saat create maupun update**.
 
-*Why:* silently ignoring a field teaches a client that sending it works. One rule for both verbs
-leaves nothing to remember.
+*Kenapa:* mengabaikan field diam-diam mengajari klien bahwa mengirimnya berhasil. Satu aturan untuk
+kedua verb berarti tidak ada yang perlu diingat.
 
-### BR-009 Omitting a field is different from sending `null`
-- **Create:** an omitted field takes its default; `null` is `422`.
-- **Update (`PATCH`):** an omitted field is unchanged. `null` clears a field the ERD marks nullable
-  and is `422` on any other field.
+### BR-009 Tidak mengirim field berbeda dengan mengirim `null`
+- **Create:** field yang tidak dikirim memakai default-nya; `null` adalah `422`.
+- **Update (`PATCH`):** field yang tidak dikirim tidak berubah. `null` mengosongkan field yang
+  ditandai nullable di ERD, dan `422` untuk field lain.
 
-*Why:* without this, "use the default" and "I want it empty" mean the same thing and the server has
-to guess which one the client meant.
+*Kenapa:* tanpa aturan ini, "pakai default" dan "saya mau kosong" berarti hal yang sama, dan server
+harus menebak maksud klien.
 
-### BR-010 Concurrent edits are caught, not overwritten
-Products, variants, brands and categories carry `version`. Every `PATCH` to them requires
-`If-Match: <version>`, and a stale version returns `409 version_conflict`. `version` travels only
-in the header, never in a body. Settings, users and media have no `version`, so their `PATCH`
-takes no `If-Match`: their edits are rare and single-field, and last-write-wins is harmless.
+### BR-010 Edit bersamaan ditangkap, tidak ditimpa
+Produk, varian, brand, dan kategori membawa `version`. Setiap `PATCH` ke sana wajib memakai
+`If-Match: <version>`, dan version yang usang mengembalikan `409 version_conflict`. `version` hanya
+dikirim di header, tidak pernah di body. Settings, user, dan media tidak punya `version`, jadi
+`PATCH`-nya tidak memakai `If-Match`: edit di sana jarang dan hanya satu field, sehingga
+last-write-wins tidak merugikan.
 
-### BR-011 Errors use one shape and are traceable
-Every error is RFC 9457 `application/problem+json` and carries `trace_id`, the OpenTelemetry trace
-id. A row belonging to another tenant returns `404`, exactly like a row that does not exist.
+### BR-011 Error memakai satu bentuk dan bisa ditelusuri
+Setiap error berbentuk RFC 9457 `application/problem+json` dan membawa `trace_id`, yaitu trace id
+OpenTelemetry. Baris milik tenant lain mengembalikan `404`, persis seperti baris yang tidak ada.
 
-*Why:* a support ticket that quotes a `trace_id` goes straight to the span. A different answer for
-other tenants' rows would show which ids exist.
+*Kenapa:* tiket support yang mengutip `trace_id` langsung menuju span-nya. Jawaban yang berbeda
+untuk baris tenant lain akan menunjukkan id mana yang ada.
 
-### BR-012 Catalog deletes archive
-`DELETE` on a brand, category, product or variant sets `archived_at`; the row stays. Users are
-disabled (BR-027), API keys are revoked (BR-028). Media is the only hard delete.
+### BR-012 Penghapusan katalog berarti arsip
+`DELETE` pada brand, kategori, produk, atau varian mengisi `archived_at`; barisnya tetap ada. User
+dinonaktifkan (BR-027), API key dicabut (BR-028). Media satu-satunya yang benar-benar dihapus.
 
-*Why:* later phases reference catalog rows from orders and listings; a hard delete would leave
-those references dangling.
+*Kenapa:* fase berikutnya merujuk baris katalog dari order dan listing; penghapusan permanen akan
+meninggalkan rujukan yang menggantung.
 
-### BR-013 Logs redact by default
-Structured logging uses a field **allow-list**: a new field is redacted until someone allows it.
+### BR-013 Log meredaksi secara default
+Logging terstruktur memakai **allow-list** field: field baru diredaksi sampai ada yang
+mengizinkannya.
 
-*Why:* Phase 1 has no customer PII; Phase 2 brings it with orders. Build the habit while the stakes
-are low.
+*Kenapa:* Fase 1 tidak punya PII pelanggan; Fase 2 membawanya bersama order. Bangun kebiasaannya
+selagi risikonya masih kecil.
 
-### BR-014 Rate limits
-UI session: 600 requests/min per user. API key: 300 requests/min per key, burst 60. Every response
-carries `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`; over the limit is
+### BR-014 Batas laju
+Sesi UI: 600 request/menit per user. API key: 300 request/menit per key, burst 60. Setiap respons
+membawa `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`; melewati batas menghasilkan
 `429 rate_limited`.
 
-### BR-015 No stock, no orders, no channels in Phase 1
-Stock is unlimited. There is **no quantity column on `variants`, in any phase**: stock belongs to
-(variant, location) and arrives in Phase 4 as an append-only ledger. Anything that implies stock,
-orders or a marketplace connection is out of scope (`01-product.md` §2).
+### BR-015 Tanpa stok, tanpa order, tanpa channel di Fase 1
+Stok tidak terbatas. **Tidak ada kolom kuantitas di `variants`, di fase mana pun**: stok milik
+(varian, lokasi) dan datang di Fase 4 sebagai ledger append-only. Apa pun yang menyiratkan stok,
+order, atau koneksi marketplace berada di luar ruang lingkup (`01-product-requirements.md` §2).
 
-*Why:* a `qty` on the variant rules out multiple warehouses, loses the audit trail, makes every
-order contend on one row, and erases the difference between on-hand and reserved stock, which is
-what prevents overselling.
+*Kenapa:* `qty` di varian menutup kemungkinan multi-gudang, menghilangkan jejak audit, membuat
+setiap order berebut satu baris, dan menghapus beda antara stok di tangan dan stok yang
+dipesan, padahal beda itulah yang mencegah oversell.
+
+### BR-016 Bahasa aplikasi: Inggris
+Semua yang ditampilkan web app berbahasa Inggris: teks UI, email (termasuk email undangan), serta
+`title`/`detail` error API. Kode, identifier, dan `openapi.yaml` juga berbahasa Inggris. Dokumen
+kontrak ditulis dalam Bahasa Indonesia.
+
+*Kenapa:* satu bahasa di produk dan codebase berarti teks, error, dan tipe hasil generate tidak
+pernah perlu diterjemahkan antar lapisan; dokumen berbahasa Indonesia untuk orang-orang yang
+mendefinisikan sistemnya.
 
 ---
 
-## 2. Auth & team
+## 2. Auth & tim
 
-### BR-020 Email is unique system-wide and identifies the tenant
-A user row belongs to exactly one tenant, and its email is unique across all tenants. Login takes
-only email and password; the tenant is read from the user row.
+### BR-020 Email unik di seluruh sistem dan menentukan tenant
+Satu baris user milik tepat satu tenant, dan email-nya unik di semua tenant. Login hanya menerima
+email dan password; tenant dibaca dari baris user.
 
-*Why:* with the same email at two tenants, nothing in the login request could tell them apart. The
-cost is accepted: an agency managing two merchants needs two email addresses.
+*Kenapa:* dengan email yang sama di dua tenant, tidak ada apa pun di request login yang bisa
+membedakan keduanya. Konsekuensinya diterima: agensi yang mengelola dua merchant butuh dua alamat
+email.
 
-### BR-021 Failed logins all look the same
-A wrong password, an unknown email and a disabled account all return the same `401`.
+### BR-021 Semua login gagal terlihat sama
+Password salah, email tidak dikenal, dan akun nonaktif semuanya mengembalikan `401` yang sama.
 
-*Why:* any difference tells an attacker which emails exist.
+*Kenapa:* perbedaan apa pun memberi tahu penyerang email mana yang ada.
 
-### BR-022 Sessions are short-lived and refresh rotates
-- The access token is a 15-minute JWT, held in memory only, never in `localStorage`.
-- The refresh token lives in an `httpOnly`, `Secure`, `SameSite=Lax` cookie and is never in a
-  response body.
-- Each refresh issues a new refresh token and revokes the old one. **A reused refresh token means
-  theft:** the whole rotation chain is revoked and the user is signed out everywhere.
-- Passwords are hashed with `argon2id` (64 MB memory, 3 iterations).
+### BR-022 Sesi berumur pendek dan refresh berotasi
+- Access token adalah JWT 15 menit, disimpan hanya di memori, tidak pernah di `localStorage`.
+- Refresh token tinggal di cookie `httpOnly`, `Secure`, `SameSite=Lax` dan tidak pernah ada di body
+  respons.
+- Setiap refresh menerbitkan refresh token baru dan mencabut yang lama. **Refresh token yang
+  dipakai ulang berarti pencurian:** seluruh rantai rotasinya dicabut dan user dikeluarkan dari
+  semua sesi.
+- Password di-hash dengan `argon2id` (memori 64 MB, 3 iterasi).
 
-*Why:* a short access token keeps the tenant context fresh, and a cookie no script can read keeps
-the long-lived token out of reach.
+*Kenapa:* access token yang pendek menjaga konteks tenant tetap segar, dan cookie yang tidak bisa
+dibaca script menjauhkan token berumur panjang dari jangkauan.
 
-### BR-023 Five fixed roles; permissions come from the role only
-Roles are `owner`, `admin`, `ops`, `warehouse` and `viewer`. They are seeded, identical for every
-tenant, and Phase 1 has no custom roles or per-user overrides. A permission is
-`resource:action`, with only two actions, `read` and `write`, because deleting is archiving
-(BR-012) and therefore part of writing. Only an owner can give someone the `owner` role. The full
-matrix is `04-api-spec.md` §3. In short:
+### BR-023 Lima peran tetap; izin hanya berasal dari peran
+Perannya adalah `owner`, `admin`, `ops`, `warehouse`, dan `viewer`. Semuanya di-seed, sama untuk
+setiap tenant, dan Fase 1 tidak punya peran kustom atau override per user. Sebuah izin berbentuk
+`resource:action`, dengan hanya dua aksi, `read` dan `write`, karena menghapus berarti mengarsipkan
+(BR-012) sehingga termasuk menulis. Hanya owner yang bisa memberi peran `owner` kepada orang lain.
+Matriks lengkapnya ada di `04-api-spec.md` §3. Ringkasnya:
 
-| Role | Intent |
+| Peran | Maksud |
 |---|---|
-| `owner` | `admin` plus `settings:write`, and nothing else. |
-| `admin` | Everything operational. |
-| `ops` | Products, variants, media, export. Reads categories and brands, doesn't write them. No user management. |
-| `warehouse` | Reads the catalog. The role is seeded now so the set of permissions doesn't change shape when Phase 4 gives it stock. |
-| `viewer` | Reads, never writes. |
+| `owner` | `admin` ditambah `settings:write`, tidak lebih. |
+| `admin` | Semua hal operasional. |
+| `ops` | Produk, varian, media, ekspor. Membaca kategori dan brand, tidak menulisnya. Tidak mengelola user. |
+| `warehouse` | Membaca katalog. Peran ini di-seed sekarang supaya himpunan izinnya tidak berubah bentuk saat Fase 4 memberinya stok. |
+| `viewer` | Membaca, tidak pernah menulis. |
 
-### BR-024 A `403` names the missing permission
-`403 permission_denied` puts the required permission in `detail` (`requires users:write`).
+### BR-024 `403` menyebut izin yang kurang
+`403 permission_denied` menaruh izin yang dibutuhkan di `detail` (`requires users:write`).
 
-*Why:* a caller can tell "you can't do this" apart from "ask your owner for X".
+*Kenapa:* pemanggil bisa membedakan "kamu tidak bisa melakukan ini" dari "minta X ke owner-mu".
 
-### BR-025 What you can't do is not shown
-A screen or action the user lacks permission for is **absent**, not disabled. An `ops` user sees no
-Team, API keys or billing navigation; a `viewer` sees no save button anywhere.
+### BR-025 Yang tidak bisa dilakukan tidak ditampilkan
+Layar atau aksi yang tidak diizinkan untuk user **tidak ada**, bukan dinonaktifkan. User `ops` tidak
+melihat navigasi Team, API keys, atau billing; `viewer` tidak melihat tombol simpan di mana pun.
 
-*Why:* a disabled control advertises a capability and generates a support ticket.
+*Kenapa:* kontrol yang dinonaktifkan mengiklankan kemampuan dan memicu tiket support.
 
-### BR-026 Invitations
-An owner or admin invites by email, name and role. The user is `invited` with no password until
-they accept, set a password and become `active`. An invitation link expires after **7 days** and can
-be resent while the user is still `invited`. Once the user is `active`, every link sent to them
-stops working.
+### BR-026 Undangan
+Owner atau admin mengundang dengan email, nama, dan peran. User berstatus `invited` tanpa password
+sampai ia menerima undangan, menyetel password, dan menjadi `active`. Tautan undangan kedaluwarsa
+setelah **7 hari** dan bisa dikirim ulang selama user masih `invited`. Begitu user `active`, semua
+tautan yang pernah dikirim kepadanya berhenti bekerja.
 
-### BR-027 Disabling a user
-A user is disabled, never deleted: `created_by` references elsewhere must still resolve. Disabling
-revokes their refresh tokens, so they are signed out within 15 minutes at worst, when the access
-token expires. The tenant's last active owner can't be disabled or demoted.
+### BR-027 Menonaktifkan user
+User dinonaktifkan, tidak pernah dihapus: rujukan `created_by` di tempat lain harus tetap bisa
+dijelaskan. Menonaktifkan user mencabut refresh token-nya, sehingga ia keluar paling lambat dalam
+15 menit, saat access token kedaluwarsa. Owner aktif terakhir di sebuah tenant tidak bisa
+dinonaktifkan atau diturunkan perannya.
 
-*Why:* without the owner guard, a tenant can lock itself out of its own settings.
+*Kenapa:* tanpa penjaga owner ini, tenant bisa mengunci dirinya sendiri dari pengaturannya.
 
-### BR-028 API keys
-- The key is stored as a SHA-256 hash, and the plaintext is shown **exactly once**, at creation.
-- A list shows only the key's prefix (`bk_live_7f3a`), enough to tell keys apart.
-- A key carries an explicit permission set, which must be a subset of its creator's permissions.
-  It is revoked, never edited.
+### BR-028 API key
+- Key disimpan sebagai hash SHA-256, dan plaintext-nya ditampilkan **tepat sekali**, saat dibuat.
+- Daftar hanya menampilkan prefix key (`bk_live_7f3a`), cukup untuk membedakan satu key dari yang
+  lain.
+- Key membawa himpunan izin eksplisit, yang harus merupakan subset dari izin pembuatnya. Key
+  dicabut, tidak pernah diedit.
 
-*Why:* without the subset check, an admin could mint a key with `settings:write` and gain more
-access than their own role allows.
+*Kenapa:* tanpa pengecekan subset, admin bisa membuat key dengan `settings:write` dan mendapat
+akses lebih besar daripada yang diizinkan perannya sendiri.
 
-### BR-029 Tenant defaults
-A new tenant defaults to timezone `Asia/Jakarta` and currency `IDR`, without anyone choosing them.
-New money fields default to the tenant's currency.
+### BR-029 Default tenant
+Tenant baru memakai zona waktu `Asia/Jakarta` dan mata uang `IDR` secara default, tanpa ada yang
+memilihnya. Field uang baru memakai mata uang tenant secara default.
 
 ---
 
-## 3. Catalog
+## 3. Katalog
 
-### BR-030 Brands
-A brand's `slug` comes from its name and is unique per tenant, archived brands included, so two
-brands whose names give the same slug are refused. `channel_brand_ids` maps the brand to
-each marketplace's own brand id (`{"shopee": "12345"}`) and is set once per brand, not per product.
-A product's brand is optional.
+### BR-030 Brand
+`slug` brand berasal dari namanya dan unik per tenant, termasuk brand yang diarsipkan, jadi dua
+brand yang namanya menghasilkan slug sama ditolak. `channel_brand_ids` memetakan brand ke id brand
+milik masing-masing marketplace (`{"shopee": "12345"}`) dan diisi sekali per brand, bukan per
+produk. Brand pada produk bersifat opsional.
 
-*Why:* marketplaces reject a listing whose brand id they don't know. Collecting the id at
-onboarding takes two minutes; recovering it six months later, when Phase 3 needs it, takes hours.
+*Kenapa:* marketplace menolak listing yang id brand-nya tidak mereka kenal. Mengumpulkan id itu saat
+onboarding butuh dua menit; mencarinya lagi enam bulan kemudian, saat Fase 3 membutuhkannya, butuh
+berjam-jam.
 
-### BR-031 Category kinds are independent trees
-`kind` is one of `category`, `series`, `collection`, `activity` or `custom`, and each kind is its
-own tree. A product can belong to categories in several trees at once: a jacket can sit in
-`apparel.outerwear.jackets`, `hiking` and `ss26`.
+### BR-031 Setiap kind kategori adalah pohon yang independen
+`kind` adalah salah satu dari `category`, `series`, `collection`, `activity`, atau `custom`, dan
+setiap kind adalah pohonnya sendiri. Produk bisa masuk ke kategori di beberapa pohon sekaligus:
+sebuah jaket bisa berada di `apparel.outerwear.jackets`, `hiking`, dan `ss26`.
 
-*Why:* this ships in Phase 1 because adding it later means re-tagging the whole catalog by hand.
+*Kenapa:* ini dikirim di Fase 1 karena menambahkannya belakangan berarti men-tag ulang seluruh
+katalog secara manual.
 
-### BR-032 The database derives a category's path
-`path` (an `ltree`) is computed by a trigger from `name` and `parent_id`. The client never sends it
-(BR-008). Renaming or moving a category rewrites the `path` of every descendant in the same
-statement.
+### BR-032 Database yang menurunkan path kategori
+`path` (sebuah `ltree`) dihitung oleh trigger dari `name` dan `parent_id`. Klien tidak pernah
+mengirimnya (BR-008). Mengganti nama atau memindahkan kategori menulis ulang `path` setiap
+keturunannya dalam statement yang sama.
 
-*Why:* the hard case is a move. If application code had to remember to rewrite descendants, the
-one write path that forgets would leave a silently broken tree.
+*Kenapa:* kasus sulitnya adalah pemindahan. Kalau kode aplikasi harus ingat menulis ulang
+keturunan, satu jalur tulis yang lupa akan meninggalkan pohon yang rusak tanpa suara.
 
-### BR-033 Moving or renaming a category never touches products
-Product assignments reference the category id, never its path. The move confirmation says so,
-with counts: "Move Jackets and its 4 subcategories? 128 products will keep their assignments."
+### BR-033 Memindahkan atau mengganti nama kategori tidak pernah menyentuh produk
+Penugasan produk merujuk id kategori, tidak pernah path-nya. Konfirmasi pemindahan menyatakannya,
+lengkap dengan jumlahnya: "Move Jackets and its 4 subcategories? 128 produk will keep their
+assignments."
 
-*Why:* users assume a move re-tags products and avoid the feature. Saying it explicitly is what
-gets the feature used.
+*Kenapa:* user mengira pemindahan akan men-tag ulang produk, lalu menghindari fiturnya. Menyatakannya
+secara eksplisit membuat fitur itu dipakai.
 
-### BR-034 No category cycles
-A category can't be moved beneath its own descendant. The client blocks it, and the database
-rejects it if forced.
+### BR-034 Tidak ada siklus kategori
+Kategori tidak bisa dipindahkan ke bawah keturunannya sendiri. Klien memblokirnya, dan database
+menolaknya kalau dipaksa.
 
-### BR-035 Category names may repeat
-Two categories named "Jackets" under different parents are fine. Siblings with the same name are
-allowed too; the database disambiguates their path labels (`jackets`, `jackets_1`).
+### BR-035 Nama kategori boleh berulang
+Dua kategori bernama "Jackets" di bawah induk berbeda tidak masalah. Saudara dengan nama sama juga
+diizinkan; database membedakan label path mereka (`jackets`, `jackets_1`).
 
-### BR-036 A category in use can't be deleted
-Deleting a category that has children or assigned products is refused with `409 category_in_use`,
-and the response says how many children and how many products are blocking it.
+### BR-036 Kategori yang sedang dipakai tidak bisa dihapus
+Menghapus kategori yang punya anak atau produk yang ditugaskan ditolak dengan
+`409 category_in_use`, dan responsnya menyebut berapa anak dan berapa produk yang menghalanginya.
 
-### BR-037 Product lifecycle
-`draft` → `active` → `archived`. A new product starts as `draft`. Only `draft → active` has a
-gate (BR-038).
+### BR-037 Siklus hidup produk
+`draft` → `active` → `archived`. Produk baru dimulai sebagai `draft`. Hanya `draft → active` yang
+punya gerbang (BR-038).
 
-### BR-038 The publish check
-Moving a product from `draft` to `active` requires:
-1. every non-archived variant has a SKU;
-2. every non-archived variant has a price greater than zero;
-3. at least one image;
-4. at least one category of kind `category`.
+### BR-038 Publish check
+Memindahkan produk dari `draft` ke `active` mensyaratkan:
+1. setiap varian yang tidak diarsipkan punya SKU;
+2. setiap varian yang tidak diarsipkan punya harga lebih dari nol;
+3. minimal satu gambar;
+4. minimal satu kategori dengan kind `category`.
 
-On failure the product stays `draft` and the response lists every failure, so the client can link
-to the cell at fault (`422 publish_check_failed`). This is a check in the publish path, **not** a
-table constraint.
+Kalau gagal, produk tetap `draft` dan responsnya mencantumkan setiap kegagalan, supaya klien bisa
+menautkan ke sel yang bermasalah (`422 publish_check_failed`). Ini pengecekan di jalur publish,
+**bukan** constraint tabel.
 
-*Why:* a draft must be quick to build. But a variant with no SKU can't be bulk-updated in Phase 2
-or matched to a marketplace listing in Phase 3, so this check is where that gets caught.
+*Kenapa:* draft harus cepat dibuat. Tetapi varian tanpa SKU tidak bisa di-bulk-update di Fase 2
+atau dicocokkan ke listing marketplace di Fase 3, jadi pengecekan inilah tempat masalah itu
+ditangkap.
 
-### BR-039 SKU is optional while drafting and unique once set
-Any number of variants may have no SKU. A SKU that is set is unique within the tenant, across all
-products. A clash is `409 duplicate_sku` and names the product that already holds it.
+### BR-039 SKU opsional selama draft dan unik begitu diisi
+Berapa pun varian boleh tanpa SKU. SKU yang diisi unik di dalam tenant, lintas semua produk.
+Bentrokan menghasilkan `409 duplicate_sku` dan menyebut produk yang sudah memegangnya.
 
-### BR-040 Option axes are positional
-A product's `option_names` is an ordered list (`["Colour","Size"]`), and each variant's
-`option_values` follows the same positions (`["Black","S"]`). **When a product has a Colour axis,
-it is position 0.** A product without one is fine. No two live variants of a product share the same
-`option_values`.
+### BR-040 Sumbu opsi bersifat posisional
+`option_names` sebuah produk adalah daftar terurut (`["Colour","Size"]`), dan `option_values`
+setiap varian mengikuti posisi yang sama (`["Black","S"]`). **Kalau produk punya sumbu Colour,
+sumbu itu di posisi 0.** Produk tanpa sumbu Colour tidak masalah. Tidak ada dua varian hidup dalam
+satu produk yang punya `option_values` sama.
 
-*Why:* positions make the matrix editor cheap: one query returns every variant with its values and
-the client turns them into a grid. A join table would make every grid render a three-way join.
+*Kenapa:* posisi membuat editor matriks murah: satu query mengembalikan setiap varian beserta
+nilainya, dan klien mengubahnya menjadi grid. Tabel join akan membuat setiap render grid menjadi
+join tiga arah.
 
-### BR-041 The variant matrix saves as one request; one bad row fails alone
-The matrix editor sends the whole intended grid in one request, and the server works out what to
-create, update and archive. A row that fails (for example a duplicate SKU) fails **alone**: the
-other rows still save, and the response reports a result for every row. A row matching an archived
-variant restores it, so a colourway removed and then re-added keeps its SKU.
+### BR-041 Matriks varian disimpan dalam satu request; satu baris buruk gagal sendirian
+Editor matriks mengirim seluruh grid yang dimaksud dalam satu request, dan server menghitung apa
+yang harus dibuat, diubah, dan diarsipkan. Baris yang gagal (misalnya SKU duplikat) gagal
+**sendirian**: baris lain tetap tersimpan, dan respons melaporkan hasil untuk setiap baris. Baris
+yang cocok dengan varian yang diarsipkan memulihkannya, jadi colourway yang dihapus lalu
+ditambahkan kembali tetap memegang SKU-nya.
 
-*Why:* without this, the client would fire dozens of separate requests with no transaction, and a
-partial failure would leave a grid that neither the user nor the system understands.
+*Kenapa:* tanpa ini, klien akan menembakkan puluhan request terpisah tanpa transaksi, dan kegagalan
+sebagian akan meninggalkan grid yang tidak dipahami user maupun sistem.
 
 ---
 
 ## 4. Media
 
-### BR-050 Store object keys, never URLs
-The database stores R2 object keys. URLs are issued when someone reads the media (BR-053).
+### BR-050 Simpan object key, tidak pernah URL
+Database menyimpan object key R2. URL diterbitkan saat seseorang membaca media (BR-053).
 
-*Why:* URLs expire; keys don't.
+*Kenapa:* URL kedaluwarsa; key tidak.
 
-### BR-051 Uploads go straight to R2 and are then confirmed
-The browser uploads directly to R2 with a presigned `PUT`; image bytes never pass through the API.
-Accepted types are JPEG, PNG and WebP, up to 20 MB each. The upload only exists once the client
-confirms it, and confirming checks the object's content type and size with R2's `HEAD`. A key can't
-be registered for an object that was never uploaded.
+### BR-051 Unggahan langsung ke R2, lalu dikonfirmasi
+Browser mengunggah langsung ke R2 dengan `PUT` presigned; byte gambar tidak pernah melewati API.
+Tipe yang diterima adalah JPEG, PNG, dan WebP, masing-masing sampai 20 MB. Unggahan baru dianggap
+ada setelah klien mengonfirmasinya, dan konfirmasi mengecek content type serta ukuran objek dengan
+`HEAD` R2. Key tidak bisa didaftarkan untuk objek yang tidak pernah diunggah.
 
-### BR-052 Derivatives are generated asynchronously
-The worker produces 1600, 800 and 200 px WebP derivatives (libvips). They are ready within 15 s
-p95. Uploading never blocks the product form.
+### BR-052 Turunan gambar dibuat secara asinkron
+Worker membuat turunan WebP 1600, 800, dan 200 px (libvips). Turunan siap dalam 15 detik p95.
+Mengunggah tidak pernah memblokir form produk.
 
-### BR-053 Bucket layout and link lifetimes
-One bucket, with every object under its tenant's prefix.
+### BR-053 Tata letak bucket dan umur tautan
+Satu bucket, dengan setiap objek di bawah prefix tenant-nya.
 
-| Prefix | Contents | Presigned `GET` lifetime |
+| Prefix | Isi | Umur `GET` presigned |
 |---|---|---|
-| `{tenant}/products/{product}/{media}/…` | Original plus its derivatives | 1 hour |
-| `{tenant}/exports/{job}.csv` | Catalog exports | 15 minutes |
+| `{tenant}/products/{product}/{media}/…` | Original beserta turunannya | 1 jam |
+| `{tenant}/exports/{job}.csv` | Ekspor katalog | 15 menit |
 
 ---
 
-## 5. Export
+## 5. Ekspor
 
-### BR-060 Long work runs as a job
-Export runs asynchronously: the request returns a `job_id` and the client polls `GET /v1/jobs/{id}`.
-The jobs endpoint is reused unchanged by every later phase.
+### BR-060 Pekerjaan panjang berjalan sebagai job
+Ekspor berjalan asinkron: request mengembalikan `job_id` dan klien melakukan polling ke
+`GET /v1/jobs/{id}`. Endpoint jobs dipakai ulang tanpa perubahan oleh setiap fase berikutnya.
 
-### BR-061 Templates follow each marketplace's bulk-upload sheet
-Templates are `shopee`, `tokopedia`, `tiktok`, `lazada`, `blibli` and `generic`. The brand column
-comes from `brands.channel_brand_ids`; the marketplace category and required attributes come from
-`products.attributes.channel.{marketplace}`. There is no `channels` table: the merchant uploads
-the file themselves.
+### BR-061 Template mengikuti sheet bulk-upload setiap marketplace
+Templatenya adalah `shopee`, `tokopedia`, `tiktok`, `lazada`, `blibli`, dan `generic`. Kolom brand
+berasal dari `brands.channel_brand_ids`; kategori marketplace dan atribut wajibnya berasal dari
+`products.attributes.channel.{marketplace}`. Tidak ada tabel `channels`: merchant mengunggah file-nya
+sendiri.
 
-*Why:* this is a dry run for Phase 3. An attribute mapping that is wrong here would have been wrong
-in the API integration too, and this is a much cheaper place to find out.
+*Kenapa:* ini gladi resik untuk Fase 3. Pemetaan atribut yang salah di sini juga akan salah di
+integrasi API, dan di sinilah tempat yang jauh lebih murah untuk mengetahuinya.
 
-### BR-062 Missing mappings never block an export
-If a product has no mapping for the chosen marketplace, the export still generates with those cells
-blank. The finished job lists the incomplete products, grouped by what is missing.
+### BR-062 Pemetaan yang hilang tidak pernah memblokir ekspor
+Kalau produk tidak punya pemetaan untuk marketplace yang dipilih, ekspor tetap dibuat dengan sel
+itu kosong. Job yang selesai mencantumkan produk yang belum lengkap, dikelompokkan menurut apa
+yang hilang.
 
-*Why:* the merchant fixes everything in one pass instead of discovering problems row by row inside
-the marketplace's uploader.
+*Kenapa:* merchant memperbaiki semuanya dalam satu kali jalan, alih-alih menemukan masalah baris
+demi baris di uploader marketplace.
 
-### BR-063 Download links expire in 15 minutes and can be regenerated
+### BR-063 Tautan unduhan kedaluwarsa dalam 15 menit dan bisa dibuat ulang
 
-### BR-064 The CSV opens cleanly in Excel with Indonesian locale settings
-Prices are written so that a comma-decimal locale doesn't mangle them.
+### BR-064 CSV terbuka rapi di Excel dengan setelan locale Indonesia
+Harga ditulis sedemikian rupa sehingga locale dengan koma desimal tidak merusaknya.
 
 ---
 
-## Traceability
+## Ketertelusuran
 
-Every rule shows up somewhere a user or caller can see it, and is proven by a backlog item.
+Setiap aturan muncul di tempat yang bisa dilihat user atau pemanggil, dan dibuktikan oleh item
+backlog.
 
-| BR | Shows up in | Proven by |
+| BR | Muncul di | Dibuktikan oleh |
 |---|---|---|
-| 001 | every tenant table | P1-006, P1-008, P1-009 |
-| 002 | every request | P1-007 |
-| 003 | `POST /auth/login`, every route | P1-008, P1-011 |
+| 001 | setiap tabel tenant | P1-006, P1-008, P1-009 |
+| 002 | setiap request | P1-007 |
+| 003 | `POST /auth/login`, setiap route | P1-008, P1-011 |
 | 004 | `variants`, `products → brands` | P1-020, P1-026 |
-| 005–007 | every payload | P1-028 |
-| 008 | every create and `PATCH` | P1-024, P1-028 |
-| 009 | every create and `PATCH` | P1-028 |
-| 010 | `PATCH` products, variants, brands, categories | P1-021, P1-024, P1-028, P1-029 |
-| 011 | every error | P1-013 |
-| 012 | every catalog `DELETE` | P1-021, P1-028, P1-029 |
+| 005–007 | setiap payload | P1-028 |
+| 008 | setiap create dan `PATCH` | P1-024, P1-028 |
+| 009 | setiap create dan `PATCH` | P1-028 |
+| 010 | `PATCH` produk, varian, brand, kategori | P1-021, P1-024, P1-028, P1-029 |
+| 011 | setiap error | P1-013 |
+| 012 | setiap `DELETE` katalog | P1-021, P1-028, P1-029 |
 | 013 | logging | P1-016 |
-| 014 | every route | P1-015 |
-| 015 | `01-product.md` §2, product list empty state | P1-069 |
-| 020–022 | Journey: invite a teammate; sign-in | P1-010, P1-011, P1-014 |
-| 023–024 | Journey: invite a teammate | P1-012 |
-| 025 | Journey: invite a teammate | P1-066 |
-| 026–027 | Journey: invite a teammate | P1-064 |
-| 028 | API keys screen | P1-065, P1-067 |
-| 029 | Journey: onboarding | P1-071, P1-068 |
-| 030 | Journey: onboarding; brand manager | P1-020, P1-021, P1-031 |
-| 031 | Journey: create a product | P1-027 |
-| 032–035 | Journey: reorganise categories | P1-022, P1-023, P1-032 |
-| 036 | Journey: reorganise categories | P1-024 |
-| 037–038 | Journey: create a product | P1-028, P1-049 |
-| 039 | Journey: create a product | P1-026, P1-029 |
-| 040–041 | Journey: create a product | P1-025, P1-040, P1-041, P1-046 |
-| 050–053 | Journey: create a product (media) | P1-042, P1-043, P1-044, P1-045, P1-048 |
-| 060–064 | Journey: export | P1-060, P1-061, P1-062, P1-063 |
+| 014 | setiap route | P1-015 |
+| 015 | `01-product-requirements.md` §2, empty state daftar produk | P1-069 |
+| 016 | semua layar, email, dan respons error | review |
+| 020–022 | Alur: mengundang rekan tim; sign-in | P1-010, P1-011, P1-014 |
+| 023–024 | Alur: mengundang rekan tim | P1-012 |
+| 025 | Alur: mengundang rekan tim | P1-066 |
+| 026–027 | Alur: mengundang rekan tim | P1-064 |
+| 028 | Layar API keys | P1-065, P1-067 |
+| 029 | Alur: onboarding | P1-071, P1-068 |
+| 030 | Alur: onboarding; brand manager | P1-020, P1-021, P1-031 |
+| 031 | Alur: membuat produk | P1-027 |
+| 032–035 | Alur: menata ulang kategori | P1-022, P1-023, P1-032 |
+| 036 | Alur: menata ulang kategori | P1-024 |
+| 037–038 | Alur: membuat produk | P1-028, P1-049 |
+| 039 | Alur: membuat produk | P1-026, P1-029 |
+| 040–041 | Alur: membuat produk | P1-025, P1-040, P1-041, P1-046 |
+| 050–053 | Alur: membuat produk (media) | P1-042, P1-043, P1-044, P1-045, P1-048 |
+| 060–064 | Alur: ekspor | P1-060, P1-061, P1-062, P1-063 |

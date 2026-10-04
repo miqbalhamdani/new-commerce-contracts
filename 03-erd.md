@@ -1,11 +1,11 @@
-# Phase 1 — Catalog & Foundation · Data Model
+# Fase 1 — Catalog & Foundation · Model Data
 
-**10 tables.** No prior schema — this phase creates the database. Constraints are tagged with the
-rule they enforce (`BR-xxx`, see `02-business-rules.md`).
+**10 tabel.** Belum ada skema sebelumnya — fase ini yang membuat database. Constraint ditandai
+dengan aturan yang ditegakkannya (`BR-xxx`, lihat `02-business-rules.md`).
 
 ---
 
-## 1. Entity relationships
+## 1. Relasi entitas
 
 ```mermaid
 erDiagram
@@ -24,48 +24,48 @@ erDiagram
   CATEGORIES ||--o{ CATEGORIES : "parent of"
 ```
 
-`product_categories` is the join table behind the many-to-many, and is what allows one product
-to sit in several trees of different `kind` at once.
+`product_categories` adalah tabel penghubung di balik relasi many-to-many, dan tabel inilah yang
+membuat satu produk bisa berada di beberapa pohon dengan `kind` berbeda sekaligus.
 
 ---
 
-## 2. Conventions
+## 2. Konvensi
 
-Applied to every table in every phase.
+Berlaku untuk setiap tabel di setiap fase.
 
-- **Keys** are `uuid`, v7, generated application-side (BR-005).
-- **Money** is `bigint` in minor units plus `char(3)` currency. `2000000` + `IDR` is Rp 20.000
-  (BR-006).
-- **Timestamps** are `timestamptz`, always UTC (BR-007).
-- **Archive, don't delete** via `archived_at timestamptz` on brands, categories, products and
-  variants (BR-012).
-- **Optimistic concurrency** via `version integer NOT NULL DEFAULT 1` on brands, categories,
-  products and variants, checked in the `UPDATE … WHERE version = $n` predicate and surfaced as the
-  `If-Match` header (BR-010).
-- **Every tenant table** gets `ENABLE` + `FORCE ROW LEVEL SECURITY` and a `tenant_isolation`
-  policy (BR-001). Shown once below; assume it on all of them.
-- **A copied `tenant_id` on a child table** is guarded by a composite foreign key to the parent's
-  `(id, tenant_id)` (BR-004).
+- **Key** berupa `uuid` v7, dibuat di sisi aplikasi (BR-005).
+- **Uang** berupa `bigint` dalam satuan terkecil ditambah mata uang `char(3)`. `2000000` + `IDR`
+  adalah Rp 20.000 (BR-006).
+- **Timestamp** berupa `timestamptz`, selalu UTC (BR-007).
+- **Arsipkan, jangan hapus** lewat `archived_at timestamptz` pada brands, kategori, produk,
+  dan varian (BR-012).
+- **Konkurensi optimistik** lewat `version integer NOT NULL DEFAULT 1` pada brands, kategori,
+  produk, dan varian. Nilainya dicek di predikat `UPDATE … WHERE version = $n` dan diekspos
+  sebagai header `If-Match` (BR-010).
+- **Setiap tabel tenant** mendapat `ENABLE` + `FORCE ROW LEVEL SECURITY` dan policy
+  `tenant_isolation` (BR-001). Ditulis sekali di bawah; anggap berlaku di semua tabel.
+- **`tenant_id` salinan pada tabel anak** dijaga oleh foreign key komposit ke `(id, tenant_id)`
+  milik tabel induk (BR-004).
 
 ---
 
 ## 3. DDL
 
-### 3.1 Extensions and shared helpers
+### 3.1 Extension dan helper bersama
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS ltree;      -- categories.path
 CREATE EXTENSION IF NOT EXISTS unaccent;   -- slugify
-CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- product title search
-CREATE EXTENSION IF NOT EXISTS citext;     -- users.email, see 3.2
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- pencarian judul produk
+CREATE EXTENSION IF NOT EXISTS citext;     -- users.email, lihat 3.2
 
--- BR-001. Applied to every tenant-owned table. Shown once, assume everywhere.
+-- BR-001. Berlaku di setiap tabel milik tenant. Ditulis sekali, anggap ada di mana-mana.
 -- CREATE POLICY tenant_isolation ON <table>
 --     USING      (tenant_id = current_setting('app.tenant_id', true)::uuid)
 --     WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 
--- P1-006 wraps those three statements in enable_tenant_rls(regclass), so a table
--- migration is one line and cannot get three of the four statements right.
+-- P1-006 membungkus ketiga statement itu dalam enable_tenant_rls(regclass), jadi
+-- migrasi tabel cukup satu baris dan tidak bisa benar tiga dari empat statement saja.
 ```
 
 ### 3.2 Platform
@@ -81,14 +81,14 @@ CREATE TABLE tenants (
                CHECK (status IN ('active','suspended','closed')),
     created_at timestamptz NOT NULL DEFAULT now()
 );
--- No RLS on tenants itself; it is reached only through the auth path.
+-- tenants sendiri tidak ber-RLS; tabel ini hanya dijangkau lewat jalur auth.
 
 CREATE TABLE users (
     id            uuid PRIMARY KEY,
     tenant_id     uuid NOT NULL REFERENCES tenants(id),
     email         citext NOT NULL,
-    password_hash text,                 -- null while invited; the invitation token is
-                                        -- signed and expiring, not stored (BR-026)
+    password_hash text,                 -- null selama diundang; token undangan
+                                        -- ditandatangani dan kedaluwarsa, tidak disimpan (BR-026)
     name          text NOT NULL,
     role          text NOT NULL DEFAULT 'viewer'
                   CHECK (role IN ('owner','admin','ops','warehouse','viewer')),
@@ -98,25 +98,25 @@ CREATE TABLE users (
     created_at    timestamptz NOT NULL DEFAULT now(),
     UNIQUE (email)                      -- BR-020
 );
--- Email is unique across the whole system, not per tenant.
+-- Email unik di seluruh sistem, bukan per tenant.
 --
--- The alternative, UNIQUE (tenant_id, email), lets one person hold accounts at
--- several merchants -- but it makes login unanswerable. `POST /v1/auth/login`
--- carries only an email and a password, so with the same email at two tenants
--- there is nothing in the request to choose between them. Global uniqueness
--- makes the user row itself say which tenant it belongs to.
+-- Alternatifnya, UNIQUE (tenant_id, email), membuat satu orang bisa punya akun di
+-- beberapa merchant -- tapi login jadi tidak bisa dijawab. `POST /v1/auth/login`
+-- hanya membawa email dan password, jadi kalau email yang sama ada di dua tenant,
+-- tidak ada apa pun di request untuk memilih di antara keduanya. Keunikan global
+-- membuat baris user itu sendiri yang menyatakan tenant pemiliknya.
 --
--- The cost is real and accepted: an agency managing two merchants needs two
--- email addresses. Revisit only alongside a login flow that carries a workspace.
+-- Biayanya nyata dan diterima: agensi yang mengelola dua merchant butuh dua
+-- alamat email. Tinjau ulang hanya bersama alur login yang membawa workspace.
 ALTER TABLE tenants ADD CONSTRAINT tenants_id_uq UNIQUE (id);
 
 CREATE TABLE refresh_tokens (
     id         uuid PRIMARY KEY,
     tenant_id  uuid NOT NULL REFERENCES tenants(id),
     user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash text NOT NULL,           -- SHA-256; the plaintext lives only in the cookie
-    -- BR-022. Rotation chain: a reused (already-rotated) token means theft. Revoke
-    -- the whole chain rather than just rejecting the one request.
+    token_hash text NOT NULL,           -- SHA-256; plaintext hanya ada di cookie
+    -- BR-022. Rantai rotasi: token yang dipakai ulang (sudah dirotasi) berarti dicuri.
+    -- Cabut seluruh rantainya, bukan sekadar menolak satu request itu.
     rotated_from uuid REFERENCES refresh_tokens(id),
     expires_at timestamptz NOT NULL,
     revoked_at timestamptz,
@@ -129,8 +129,8 @@ CREATE TABLE api_keys (
     id          uuid PRIMARY KEY,
     tenant_id   uuid NOT NULL REFERENCES tenants(id),
     name        text NOT NULL,
-    key_hash    text NOT NULL UNIQUE,   -- SHA-256; plaintext shown once at creation (BR-028)
-    key_prefix  text NOT NULL,          -- 'bk_live_' + 4 chars, so a user can tell keys apart
+    key_hash    text NOT NULL UNIQUE,   -- SHA-256; plaintext ditampilkan sekali saat dibuat (BR-028)
+    key_prefix  text NOT NULL,          -- 'bk_live_' + 4 karakter, supaya user bisa membedakan key
     permissions text[] NOT NULL DEFAULT '{}',
     created_by  uuid REFERENCES users(id),
     last_used_at timestamptz,
@@ -139,18 +139,18 @@ CREATE TABLE api_keys (
 );
 ```
 
-### 3.3 Catalog
+### 3.3 Katalog
 
 ```sql
 CREATE TABLE brands (
     id         uuid PRIMARY KEY,
     tenant_id  uuid NOT NULL REFERENCES tenants(id),
     name       text NOT NULL,
-    slug       text NOT NULL,           -- derived from name, never client-supplied (BR-030)
-    -- BR-030. Marketplaces keep their own brand registries and reject a listing whose
-    -- brand id is unknown to them. Mapping lives here so it is set once per
-    -- brand rather than repeated on every product. Consumed by the Phase 1 CSV
-    -- export and, from Phase 3, by the listing publisher.
+    slug       text NOT NULL,           -- diturunkan dari name, tidak pernah dari klien (BR-030)
+    -- BR-030. Marketplace punya registri brand sendiri dan menolak listing yang
+    -- brand id-nya tidak mereka kenal. Pemetaannya disimpan di sini supaya diisi sekali
+    -- per brand, bukan diulang di setiap produk. Dipakai ekspor CSV Fase 1
+    -- dan, mulai Fase 3, oleh listing publisher.
     --   {"shopee": "12345", "tokopedia": "998", "tiktok": "abc"}
     channel_brand_ids jsonb NOT NULL DEFAULT '{}'::jsonb,
     version    integer NOT NULL DEFAULT 1,
@@ -166,11 +166,11 @@ CREATE TABLE categories (
     id         uuid PRIMARY KEY,
     tenant_id  uuid NOT NULL REFERENCES tenants(id),
     parent_id  uuid REFERENCES categories(id),
-    -- BR-031. Independent trees; a product may sit in several at once.
+    -- BR-031. Pohon-pohon independen; satu produk boleh berada di beberapa sekaligus.
     kind       text NOT NULL DEFAULT 'category'
                CHECK (kind IN ('category','series','collection','activity','custom')),
     name       text NOT NULL,
-    path       ltree NOT NULL,          -- derived by trigger, never client-supplied (BR-032)
+    path       ltree NOT NULL,          -- diturunkan oleh trigger, tidak pernah dari klien (BR-032)
     version    integer NOT NULL DEFAULT 1,
     archived_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
@@ -186,18 +186,18 @@ CREATE TABLE products (
     tenant_id    uuid NOT NULL REFERENCES tenants(id),
     title        text NOT NULL,
     description  text,
-    brand_id     uuid REFERENCES brands(id),   -- nullable: not every product has a brand
+    brand_id     uuid REFERENCES brands(id),   -- nullable: tidak semua produk punya brand
     status       text NOT NULL DEFAULT 'draft'          -- BR-037
                  CHECK (status IN ('draft','active','archived')),
-    -- Attributes that vary by category and by marketplace, where a column per
-    -- field would be a migration every time a channel changes its requirements.
+    -- Atribut yang berbeda per kategori dan per marketplace, yang kalau dibuat satu kolom
+    -- per field akan jadi migrasi setiap kali sebuah channel mengubah persyaratannya.
     --   {"material":"Cotton Combed 30s",
     --    "channel":{"shopee":{"category_id":"100017"}}}
-    -- Never put anything you filter, sort or enforce uniqueness on in here.
+    -- Jangan taruh di sini apa pun yang Anda filter, urutkan, atau wajibkan unik.
     attributes   jsonb NOT NULL DEFAULT '{}'::jsonb,
-    -- BR-040. Ordered option axes, e.g. ['Colour','Size']; Colour is position 0
-    -- when present. variants.option_values is positional against THIS array --
-    -- the pairing is what makes the matrix editor a pivot rather than a join.
+    -- BR-040. Sumbu opsi berurutan, mis. ['Colour','Size']; Colour di posisi 0
+    -- bila ada. variants.option_values posisional terhadap array INI --
+    -- pasangan itulah yang membuat matrix editor cukup pivot, bukan join.
     option_names text[] NOT NULL DEFAULT '{}',
     version      integer NOT NULL DEFAULT 1,
     archived_at  timestamptz,
@@ -207,7 +207,7 @@ CREATE TABLE products (
 CREATE INDEX ON products (tenant_id, status) WHERE archived_at IS NULL;
 CREATE INDEX ON products (tenant_id, brand_id) WHERE archived_at IS NULL;
 CREATE INDEX ON products USING gin (attributes jsonb_path_ops);
-CREATE INDEX ON products USING gin (title gin_trgm_ops);   -- the search box
+CREATE INDEX ON products USING gin (title gin_trgm_ops);   -- kotak pencarian
 ALTER TABLE products ADD CONSTRAINT products_id_tenant_uq UNIQUE (id, tenant_id);
 ALTER TABLE products ADD CONSTRAINT products_same_tenant_as_brand   -- BR-004
     FOREIGN KEY (brand_id, tenant_id) REFERENCES brands (id, tenant_id);
@@ -216,28 +216,28 @@ CREATE TABLE variants (
     id            uuid PRIMARY KEY,
     tenant_id     uuid NOT NULL REFERENCES tenants(id),
     product_id    uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    sku           text,          -- nullable while drafting (BR-039); required to publish (BR-038)
+    sku           text,          -- nullable selama draft (BR-039); wajib untuk publish (BR-038)
     barcode       text,
-    -- Positional against products.option_names: ['Black','S']
+    -- Posisional terhadap products.option_names: ['Black','S']
     option_values text[] NOT NULL DEFAULT '{}',
     price_amount  bigint NOT NULL DEFAULT 0 CHECK (price_amount >= 0),
     compare_at_amount bigint CHECK (compare_at_amount IS NULL OR compare_at_amount >= 0),
     currency      char(3) NOT NULL DEFAULT 'IDR',
     weight_grams  integer NOT NULL DEFAULT 0 CHECK (weight_grams >= 0),
-    -- BR-015: no quantity column, in any phase. Stock is a property of
-    -- (variant, location) and lives in the ledger from Phase 4. buffer_qty
-    -- ALTERs in at Phase 4 as well.
+    -- BR-015: tidak ada kolom kuantitas, di fase mana pun. Stok adalah properti dari
+    -- (variant, location) dan tinggal di ledger mulai Fase 4. buffer_qty
+    -- juga ditambahkan lewat ALTER di Fase 4.
     archived_at   timestamptz,
     version       integer NOT NULL DEFAULT 1,
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
--- BR-039. Partial unique index rather than a UNIQUE constraint: SKU is optional,
--- so many variants may sit with sku IS NULL while non-null ones stay unique.
+-- BR-039. Partial unique index, bukan constraint UNIQUE: SKU opsional, jadi
+-- banyak variant boleh ber-sku IS NULL sementara yang non-null tetap unik.
 CREATE UNIQUE INDEX variants_tenant_sku_uq
     ON variants (tenant_id, sku) WHERE sku IS NOT NULL;
 CREATE INDEX ON variants (tenant_id, product_id);
--- BR-040: one live variant per option combination. The matrix diff keys on it.
+-- BR-040: satu variant hidup per kombinasi opsi. Diff matrix berpatokan padanya.
 CREATE UNIQUE INDEX variants_product_options_uq
     ON variants (product_id, option_values) WHERE archived_at IS NULL;
 ALTER TABLE variants ADD CONSTRAINT variants_id_tenant_uq UNIQUE (id, tenant_id);
@@ -249,7 +249,7 @@ CREATE TABLE product_categories (
     product_id  uuid NOT NULL,
     category_id uuid NOT NULL,
     PRIMARY KEY (product_id, category_id),
-    -- BR-004: both sides must belong to this row's tenant.
+    -- BR-004: kedua sisi harus milik tenant baris ini.
     CONSTRAINT product_categories_same_tenant_as_product
         FOREIGN KEY (product_id, tenant_id) REFERENCES products (id, tenant_id) ON DELETE CASCADE,
     CONSTRAINT product_categories_same_tenant_as_category
@@ -261,8 +261,8 @@ CREATE TABLE product_media (
     id         uuid PRIMARY KEY,
     tenant_id  uuid NOT NULL REFERENCES tenants(id),
     product_id uuid NOT NULL,
-    variant_id uuid,                                  -- null = product-level
-    r2_key     text NOT NULL,      -- an object key, never a URL (BR-050)
+    variant_id uuid,                                  -- null = tingkat produk
+    r2_key     text NOT NULL,      -- object key, tidak pernah URL (BR-050)
     mime_type  text NOT NULL,
     bytes      bigint NOT NULL,
     width      integer,
@@ -270,7 +270,7 @@ CREATE TABLE product_media (
     position   integer NOT NULL DEFAULT 0,
     derivatives jsonb NOT NULL DEFAULT '{}'::jsonb,  -- {"800":"…/x_800.webp"}
     created_at timestamptz NOT NULL DEFAULT now(),
-    -- BR-004. SET NULL (variant_id) clears only the variant, never tenant_id.
+    -- BR-004. SET NULL (variant_id) hanya mengosongkan variant, tidak pernah tenant_id.
     CONSTRAINT product_media_same_tenant_as_product
         FOREIGN KEY (product_id, tenant_id) REFERENCES products (id, tenant_id) ON DELETE CASCADE,
     CONSTRAINT product_media_same_tenant_as_variant
@@ -280,23 +280,23 @@ CREATE TABLE product_media (
 CREATE INDEX ON product_media (tenant_id, product_id, position);
 ```
 
-`product_media` is the tenth table and was not in the phase list, but imagery has nowhere else
-to live and Phase 1 is the only sensible place for it.
+`product_media` adalah tabel kesepuluh dan tidak ada di daftar fase, tetapi gambar produk tidak
+punya tempat lain, dan Fase 1 satu-satunya tempat yang masuk akal untuknya.
 
-### 3.4 Category path trigger
+### 3.4 Trigger path kategori
 
-Enforces BR-032 (derived path, subtree rewritten in one statement), BR-034 (no cycles) and
-BR-035 (same-named siblings are disambiguated).
+Menegakkan BR-032 (path diturunkan, subtree ditulis ulang dalam satu statement), BR-034 (tanpa
+siklus), dan BR-035 (saudara bernama sama dibedakan).
 
 ```sql
--- ltree labels accept only [A-Za-z0-9_], so names are slugified.
+-- Label ltree hanya menerima [A-Za-z0-9_], jadi nama di-slugify.
 CREATE OR REPLACE FUNCTION slugify_label(txt text) RETURNS text AS $$
   SELECT regexp_replace(
            regexp_replace(lower(unaccent(coalesce(txt,''))), '[^a-z0-9]+', '_', 'g'),
            '^_+|_+$', '', 'g');
 $$ LANGUAGE sql IMMUTABLE;
 
--- BEFORE: compute this row's own path.
+-- BEFORE: hitung path milik baris ini sendiri.
 CREATE OR REPLACE FUNCTION categories_set_path() RETURNS trigger AS $$
 DECLARE
   parent_path ltree;
@@ -307,13 +307,13 @@ BEGIN
 
   IF NEW.parent_id IS NOT NULL THEN
     SELECT path INTO STRICT parent_path FROM categories WHERE id = NEW.parent_id;
-    -- A category cannot be moved beneath its own descendant.
+    -- Kategori tidak boleh dipindah ke bawah turunannya sendiri.
     IF TG_OP = 'UPDATE' AND parent_path <@ OLD.path THEN
       RAISE EXCEPTION 'cannot move category % beneath its own descendant', NEW.id;
     END IF;
   END IF;
 
-  -- Two siblings named "Jackets" slugify identically; disambiguate.
+  -- Dua saudara bernama "Jackets" menghasilkan slug yang sama; bedakan.
   label := base;
   LOOP
     candidate := CASE WHEN parent_path IS NULL
@@ -334,11 +334,11 @@ CREATE TRIGGER categories_path_biu
   BEFORE INSERT OR UPDATE OF name, parent_id ON categories
   FOR EACH ROW EXECUTE FUNCTION categories_set_path();
 
--- AFTER: rebase every descendant when this row's path changed.
+-- AFTER: pindahkan setiap turunan saat path baris ini berubah.
 CREATE OR REPLACE FUNCTION categories_move_subtree() RETURNS trigger AS $$
 BEGIN
-  -- The UPDATE below re-fires this trigger on each descendant, which the single
-  -- statement has already rebased. Stop at depth 1.
+  -- UPDATE di bawah memicu ulang trigger ini di setiap turunan, yang sudah
+  -- dipindahkan oleh statement tunggal itu. Berhenti di kedalaman 1.
   IF pg_trigger_depth() > 1 THEN RETURN NULL; END IF;
 
   IF NEW.path IS DISTINCT FROM OLD.path THEN
@@ -358,45 +358,46 @@ CREATE TRIGGER categories_move_aiu
 
 ---
 
-## 4. Consequences to decide deliberately
+## 4. Konsekuensi yang diputuskan dengan sengaja
 
-### 4.1 A nullable SKU
+### 4.1 SKU yang nullable
 
-Three flows key on SKU, all of them in later phases: `POST /products/bulk` upserts by it
-(Phase 2), `POST /products/import` matches rows by it (Phase 2), and marketplace listing
-autodiscovery matches items by it (Phase 3). A variant with `sku IS NULL` therefore cannot be
-upserted, imported into, or auto-mapped — it can only be created and then edited by id.
+Tiga alur berpatokan pada SKU, semuanya di fase berikutnya: `POST /products/bulk` melakukan upsert
+berdasarkan SKU (Fase 2), `POST /products/import` mencocokkan baris berdasarkan SKU (Fase 2), dan
+autodiscovery listing marketplace mencocokkan item berdasarkan SKU (Fase 3). Karena itu, varian
+dengan `sku IS NULL` tidak bisa di-upsert, diimpor, atau dipetakan otomatis — varian itu hanya
+bisa dibuat lalu diedit berdasarkan id.
 
-That is the right trade for a draft a merchandiser is still building, and the wrong state for
-anything published. So SKU is enforced when a product is published (the BR-038 publish check), not
-when a variant is inserted. From Phase 3, a variant with no SKU also can't be attached to a channel
-listing.
+Itu kompromi yang tepat untuk draft yang masih disusun merchandiser, dan keadaan yang salah untuk
+apa pun yang sudah dipublikasikan. Jadi SKU ditegakkan saat produk dipublikasikan (publish check
+BR-038), bukan saat varian di-insert. Mulai Fase 3, varian tanpa SKU juga tidak bisa dipasang ke
+listing channel.
 
-### 4.2 No quantity column, ever (BR-015)
+### 4.2 Tidak ada kolom kuantitas, selamanya (BR-015)
 
-There is no `qty` on `variants` and there never will be. Quantity is a property of
-*(variant, location)*, and even then it is derived from an append-only ledger rather than
-stored as truth — see `phase-4/Data model - ERD.md`.
+Tidak ada `qty` di `variants` dan tidak akan pernah ada. Kuantitas adalah properti dari
+*(varian, location)*, dan itu pun diturunkan dari ledger append-only, bukan disimpan sebagai
+kebenaran — lihat `phase-4/Data model - ERD.md`.
 
-Putting `qty` here would cost four things at once: multi-warehouse becomes impossible, the
-audit trail disappears ("why is stock 40?" is unanswerable), every order for any variant of a
-product contends on the same row, and *on hand* becomes indistinguishable from *reserved* —
-which is exactly the distinction that prevents oversell.
+Menaruh `qty` di sini akan mengorbankan empat hal sekaligus: multi-gudang jadi mustahil, jejak
+audit hilang ("kenapa stoknya 40?" tidak bisa dijawab), setiap order untuk varian mana pun dari
+satu produk berebut baris yang sama, dan *on hand* jadi tidak bisa dibedakan dari *reserved* —
+padahal pembedaan itulah yang mencegah oversell.
 
-In Phases 1–3 stock is simply unlimited. That is a scope decision, not a data model decision,
-and the data model does not need to change to accommodate it.
+Di Fase 1–3 stok memang tidak terbatas. Itu keputusan ruang lingkup, bukan keputusan model data,
+dan model data tidak perlu berubah untuk mengakomodasinya.
 
 ---
 
-## 5. What later phases add to these tables
+## 5. Yang ditambahkan fase berikutnya ke tabel-tabel ini
 
-Nothing in Phase 1 is dropped or renamed later. The additions:
+Tidak ada bagian Fase 1 yang dihapus atau diganti nama nanti. Tambahannya:
 
-| Phase | Change to a Phase 1 table |
+| Fase | Perubahan pada tabel Fase 1 |
 |---|---|
-| 2 | None. Phase 2 is purely additive |
-| 3 | None. `channel_listings` references `variants` from the new side |
+| 2 | Tidak ada. Fase 2 murni menambah |
+| 3 | Tidak ada. `channel_listings` mereferensikan `variants` dari sisi baru |
 | 4 | `ALTER TABLE variants ADD COLUMN buffer_qty integer NOT NULL DEFAULT 0` |
 
-That Phase 1 survives three phases without a destructive migration is the point of spending
-time on it now.
+Fase 1 bertahan melewati tiga fase tanpa migrasi destruktif — itulah alasan meluangkan waktu untuk
+model ini sekarang.

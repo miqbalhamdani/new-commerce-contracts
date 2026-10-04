@@ -1,38 +1,40 @@
-# Phase 1 — Catalog & Foundation · API Specification
+# Fase 1 — Catalog & Foundation · Spesifikasi API
 
-**The conventions in §1 apply to every phase.** Later phases reference this section rather than
-restating it. Each endpoint lists the permission it requires (matrix in §3) and the rules it
-enforces (`BR-xxx`, see `02-business-rules.md`). `openapi.yaml` is the machine-readable copy; a
-path appears there when the backlog item that builds it lands.
+**Konvensi di §1 berlaku untuk semua fase.** Fase berikutnya merujuk bagian ini, tidak menulisnya
+ulang. Setiap endpoint mencantumkan izin yang dibutuhkan (matriks di §3) dan aturan yang
+ditegakkannya (`BR-xxx`, lihat `02-business-rules.md`). `openapi.yaml` adalah salinan yang terbaca
+mesin; sebuah path muncul di sana saat item backlog yang membangunnya selesai. Untuk apa pun yang
+dijelaskan keduanya, kedua file harus selaras: ubah salah satu, ubah juga yang lain, dalam commit
+yang sama.
 
 ---
 
-## 1. Conventions
+## 1. Konvensi
 
-| Concern | Rule |
+| Aspek | Aturan |
 |---|---|
-| Base | `https://api.{domain}/v1`: the version is in the path; breaking changes get `/v2` |
-| Auth (UI) | `Authorization: Bearer <JWT>`, 15-minute access token, rotating refresh in an httpOnly cookie (BR-022) |
-| Auth (integrators) | `Authorization: Bearer <api_key>`, limited to the key's permissions (BR-028) |
-| Tenant | Derived from the token, **never** accepted from a header, query or body (BR-003) |
+| Base | `https://api.{domain}/v1`: versi ada di path; perubahan yang merusak kompatibilitas mendapat `/v2` |
+| Auth (UI) | `Authorization: Bearer <JWT>`, access token 15 menit, refresh berotasi di cookie httpOnly (BR-022) |
+| Auth (integrator) | `Authorization: Bearer <api_key>`, terbatas pada izin key tersebut (BR-028) |
+| Tenant | Diturunkan dari token, **tidak pernah** diterima dari header, query, atau body (BR-003) |
 | Content type | `application/json; charset=utf-8` |
-| Casing | `snake_case` in JSON, matching the database, so there is no translation layer to drift |
-| Ids | UUID v7 strings (BR-005) |
-| Money | `{"amount": 2000000, "currency": "IDR"}`: integer minor units (BR-006) |
-| Time | RFC 3339 with offset, always UTC (BR-007) |
-| Server-managed fields | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `slug`: sending one is `422`, on create and update (BR-008) |
-| Omitted vs `null` | Create: omitted takes the default, `null` is `422`. `PATCH`: omitted is unchanged, `null` clears a nullable field (BR-009) |
-| Concurrency | `If-Match: <version>` on every `PATCH` to a product, variant, brand or category, and on the variant matrix `PUT`; stale → `409` (BR-010) |
-| Responses | Every field is always present; an empty optional field is `null`. References are expanded to `{id, name}` |
-| Collections | `{ "data": [...], "next_cursor": "…" }`. `next_cursor` is `null` on the last page. Unpaginated collections omit it. `GET /v1/roles` is the one bare array |
-| Pagination | Cursor only: `?limit=50&cursor=<opaque>`, `limit` 1–200. No `offset`: a deep offset is a sequential scan |
-| Sorting | `?sort=-created_at` (leading `-` for descending), allow-listed per endpoint |
-| Filtering | Explicit query parameters, not a query DSL |
-| Deletes | Catalog `DELETE` archives and returns `204` (BR-012) |
+| Penulisan nama | `snake_case` di JSON, sama dengan database, jadi tidak ada lapisan penerjemah yang bisa melenceng |
+| Id | String UUID v7 (BR-005) |
+| Uang | `{"amount": 2000000, "currency": "IDR"}`: integer dalam satuan terkecil (BR-006) |
+| Waktu | RFC 3339 dengan offset, selalu UTC (BR-007) |
+| Field yang dikelola server | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `slug`: mengirim salah satunya menghasilkan `422`, saat create maupun update (BR-008) |
+| Dihilangkan vs `null` | Create: field yang dihilangkan memakai default, `null` menghasilkan `422`. `PATCH`: field yang dihilangkan tidak berubah, `null` mengosongkan field yang nullable (BR-009) |
+| Konkurensi | `If-Match: <version>` pada setiap `PATCH` ke produk, varian, brand, atau kategori, dan pada `PUT` matriks varian; versi basi → `409` (BR-010) |
+| Respons | Setiap field selalu ada; field opsional yang kosong bernilai `null`. Referensi diperluas menjadi `{id, name}` |
+| Koleksi | `{ "data": [...], "next_cursor": "…" }`. `next_cursor` bernilai `null` di halaman terakhir. Koleksi tanpa paginasi tidak menyertakannya. `GET /v1/roles` satu-satunya array polos |
+| Paginasi | Hanya cursor: `?limit=50&cursor=<opaque>`, `limit` 1–200. Tidak ada `offset`: offset yang dalam berarti sequential scan |
+| Pengurutan | `?sort=-created_at` (awalan `-` untuk menurun), daftar yang diizinkan ditentukan per endpoint |
+| Penyaringan | Parameter query eksplisit, bukan query DSL |
+| Hapus | `DELETE` katalog mengarsipkan dan mengembalikan `204` (BR-012) |
 
-### 1.1 Errors
+### 1.1 Error
 
-Every error is RFC 9457 `application/problem+json` (BR-011):
+Setiap error berbentuk RFC 9457 `application/problem+json` (BR-011):
 
 ```json
 {
@@ -46,46 +48,46 @@ Every error is RFC 9457 `application/problem+json` (BR-011):
 }
 ```
 
-The code is the last segment of `type`. `errors[]` entries always carry `field`
-and may carry anything the failure needs.
+Kodenya adalah segmen terakhir `type`. Entri `errors[]` selalu membawa `field`
+dan boleh membawa apa pun yang dibutuhkan kegagalan tersebut.
 
-| Code | Status | When | BR |
+| Kode | Status | Kapan | BR |
 |---|---|---|---|
-| `validation_failed` | 422 | Malformed body, failed validation, a server-managed field sent, `null` where it isn't allowed, missing `If-Match` | 008, 009 |
-| `publish_check_failed` | 422 | `draft → active` fails the publish check; one `errors[]` entry per failure | 038 |
-| `unauthenticated` | 401 | Missing, expired or invalid credentials; every failed login | 021 |
-| `permission_denied` | 403 | `detail` names the required permission | 024 |
-| `not_found` | 404 | No such resource in this tenant, including another tenant's rows | 011 |
-| `version_conflict` | 409 | Stale `If-Match` | 010 |
-| `duplicate_sku` | 409 | SKU already used in this tenant; `detail` names the product holding it | 039 |
-| `category_in_use` | 409 | Deleting a category that has children or products | 036 |
-| `rate_limited` | 429 | Over the limit; see the `RateLimit-*` headers | 014 |
-| `internal` | 500 | Anything unexpected. `detail` is generic on purpose; `trace_id` is the lead | 011 |
+| `validation_failed` | 422 | Body rusak, validasi gagal, field yang dikelola server dikirim, `null` di tempat yang tidak boleh, `If-Match` tidak ada | 008, 009 |
+| `publish_check_failed` | 422 | `draft → active` gagal publish check; satu entri `errors[]` per kegagalan | 038 |
+| `unauthenticated` | 401 | Kredensial tidak ada, kedaluwarsa, atau tidak sah; setiap login yang gagal | 021 |
+| `permission_denied` | 403 | `detail` menyebut izin yang dibutuhkan | 024 |
+| `not_found` | 404 | Resource tidak ada di tenant ini, termasuk baris milik tenant lain | 011 |
+| `version_conflict` | 409 | `If-Match` basi | 010 |
+| `duplicate_sku` | 409 | SKU sudah dipakai di tenant ini; `detail` menyebut produk yang memakainya | 039 |
+| `category_in_use` | 409 | Menghapus kategori yang punya anak atau produk | 036 |
+| `rate_limited` | 429 | Melewati batas; lihat header `RateLimit-*` | 014 |
+| `internal` | 500 | Apa pun yang tak terduga. `detail` sengaja generik; `trace_id` adalah petunjuknya | 011 |
 
-### 1.2 Rate limits
+### 1.2 Batas laju
 
-| Caller | Limit |
+| Pemanggil | Batas |
 |---|---|
-| UI session (JWT) | 600 req/min/user |
-| API key | 300 req/min/key, burst 60 |
+| Sesi UI (JWT) | 600 req/menit/pengguna |
+| API key | 300 req/menit/key, burst 60 |
 
-Headers on every response: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` (BR-014).
+Header di setiap respons: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` (BR-014).
 
 ---
 
-## 2. Auth and identity
+## 2. Auth dan identitas
 
-| Method | Path | Permission | BR |
+| Method | Path | Izin | BR |
 |---|---|---|---|
-| `POST` | `/v1/auth/login` | none | 020, 021, 022 |
-| `POST` | `/v1/auth/refresh` | refresh cookie | 022 |
-| `POST` | `/v1/auth/logout` | signed in | 022 |
-| `POST` | `/v1/auth/accept-invite` | none (invitation token) | 026 |
-| `GET` | `/v1/me` | signed in | — |
-| `PATCH` | `/v1/me` | signed in | 009 |
+| `POST` | `/v1/auth/login` | tidak ada | 020, 021, 022 |
+| `POST` | `/v1/auth/refresh` | cookie refresh | 022 |
+| `POST` | `/v1/auth/logout` | sudah login | 022 |
+| `POST` | `/v1/auth/accept-invite` | tidak ada (token undangan) | 026 |
+| `GET` | `/v1/me` | sudah login | — |
+| `PATCH` | `/v1/me` | sudah login | 009 |
 
-Tenants are created by the platform team, not through this API. The owner then receives an
-invitation like any other user.
+Tenant dibuat oleh tim platform, bukan lewat API ini. Owner lalu menerima undangan seperti
+pengguna lain.
 
 ### Login
 
@@ -93,40 +95,40 @@ invitation like any other user.
 POST /v1/auth/login
 { "email": "ops@erigo.co.id", "password": "…" }
 
-200 OK   ← refresh token set as an httpOnly, Secure, SameSite=Lax cookie
+200 OK   ← refresh token dipasang sebagai cookie httpOnly, Secure, SameSite=Lax
 { "access_token": "eyJ…", "expires_in": 900,
   "user":   { "id": "0192…", "name": "Budi", "role": "ops",
               "permissions": ["products:read", "products:write", "…"] },
   "tenant": { "id": "0192…", "name": "Erigo", "timezone": "Asia/Jakarta", "currency": "IDR" } }
 ```
 
-This body is the **Session**. `refresh` and `accept-invite` return it too. The tenant is resolved
-from the user row (BR-020): there is no tenant, workspace or subdomain parameter, and adding one
-would be a breaking change. The lookup is the one read that crosses tenants and runs through a
-single `SECURITY DEFINER` function (BR-003). A wrong password, an unknown email and a disabled
-account are all the same `401` (BR-021).
+Body ini adalah **Session**. `refresh` dan `accept-invite` juga mengembalikannya. Tenant ditentukan
+dari baris pengguna (BR-020): tidak ada parameter tenant, workspace, atau subdomain, dan
+menambahkannya akan merusak kompatibilitas. Pencarian ini satu-satunya pembacaan yang melintasi
+tenant dan berjalan lewat satu fungsi `SECURITY DEFINER` (BR-003). Password salah, email tak
+dikenal, dan akun nonaktif semuanya menghasilkan `401` yang sama (BR-021).
 
-### Refresh and logout
+### Refresh dan logout
 
 ```
-POST /v1/auth/refresh      (no body; reads the cookie)  → 200 Session, new cookie
-POST /v1/auth/logout       (no body; reads the cookie)  → 204, cookie cleared
+POST /v1/auth/refresh      (tanpa body; membaca cookie)  → 200 Session, cookie baru
+POST /v1/auth/logout       (tanpa body; membaca cookie)  → 204, cookie dihapus
 ```
 
-Each `refresh` rotates the token; reusing a rotated token revokes the whole chain (BR-022).
-`refresh` is unauthenticated because you call it *after* the access token has expired. `logout`
-is idempotent: a second call, or a call with no cookie, is still `204`.
+Setiap `refresh` merotasi token; memakai ulang token yang sudah dirotasi mencabut seluruh rantainya
+(BR-022). `refresh` tidak butuh autentikasi karena dipanggil *setelah* access token kedaluwarsa.
+`logout` idempoten: panggilan kedua, atau panggilan tanpa cookie, tetap menghasilkan `204`.
 
-### Accept an invitation
+### Menerima undangan
 
 ```json
 POST /v1/auth/accept-invite
 { "token": "inv_9c2e…", "password": "at-least-8-chars" }
 
-200 OK   ← Session + refresh cookie: the user lands signed in
+200 OK   ← Session + cookie refresh: pengguna langsung masuk dalam keadaan login
 ```
 
-An expired or already-used token is `422` on `token` (BR-026).
+Token yang kedaluwarsa atau sudah dipakai menghasilkan `422` pada `token` (BR-026).
 
 ### Me
 
@@ -139,19 +141,19 @@ GET /v1/me
 
 PATCH /v1/me
 { "name": "Budi Santoso" }
-200 OK   ← same body as GET /v1/me
+200 OK   ← body sama dengan GET /v1/me
 ```
 
-`name` is the only field you can change here. Password change and reset are not in this phase.
+`name` satu-satunya field yang bisa diubah di sini. Ganti dan reset password tidak ada di fase ini.
 
 ---
 
-## 3. Roles and permissions
+## 3. Peran dan izin
 
-Five roles, seeded and fixed (BR-023). A permission is `resource:action`, where the action is
-`read` or `write`.
+Lima peran, di-seed dan tetap (BR-023). Izin berbentuk `resource:action`, dengan action berupa
+`read` atau `write`.
 
-| Permission | `owner` | `admin` | `ops` | `warehouse` | `viewer` |
+| Izin | `owner` | `admin` | `ops` | `warehouse` | `viewer` |
 |---|:--:|:--:|:--:|:--:|:--:|
 | `products:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `products:write` | ✓ | ✓ | ✓ | | |
@@ -171,24 +173,25 @@ Five roles, seeded and fixed (BR-023). A permission is `resource:action`, where 
 | `settings:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `settings:write` | ✓ | | | | |
 
-**`owner` is `admin` plus `settings:write`, and nothing else.** An owner hands a merchandiser access
-"without giving away billing" (`01-product.md` §5.5), so the line between the two roles is the
-tenant's own settings.
+**`owner` adalah `admin` ditambah `settings:write`, tidak lebih.** Owner memberi akses kepada
+merchandiser "tanpa menyerahkan urusan tagihan" (`01-product-requirements.md` §5.5), jadi batas antara kedua
+peran adalah pengaturan tenant itu sendiri.
 
-**`ops` reads categories and brands but doesn't write them.** The product editor needs to read them
-to attach a product; restructuring the tree is the category manager's job, which belongs to Admin.
+**`ops` membaca kategori dan brand tetapi tidak menulisnya.** Editor produk perlu membacanya untuk
+memasang produk; menata ulang pohon kategori adalah tugas pengelola kategori, yang menjadi milik
+Admin.
 
-**`warehouse` reads the catalog and changes nothing.** It exists so the role is available before
-Phase 4 gives it stock.
+**`warehouse` membaca katalog dan tidak mengubah apa pun.** Peran ini ada supaya sudah tersedia
+sebelum Fase 4 memberinya stok.
 
-A `403` names the required permission in `detail` (BR-024). A client doesn't render what the user
-can't do (BR-025).
+`403` menyebut izin yang dibutuhkan di `detail` (BR-024). Klien tidak merender apa yang tidak bisa
+dilakukan pengguna (BR-025).
 
 ---
 
-## 4. Settings, users and API keys
+## 4. Pengaturan, pengguna, dan API key
 
-| Method | Path | Permission | BR |
+| Method | Path | Izin | BR |
 |---|---|---|---|
 | `GET` | `/v1/settings` | `settings:read` | 029 |
 | `PATCH` | `/v1/settings` | `settings:write` | 009, 029 |
@@ -202,7 +205,7 @@ can't do (BR-025).
 | `POST` | `/v1/api-keys` | `api_keys:write` | 028 |
 | `DELETE` | `/v1/api-keys/{id}` | `api_keys:write` | 028 |
 
-### Settings
+### Pengaturan
 
 ```json
 GET /v1/settings
@@ -212,12 +215,12 @@ GET /v1/settings
 
 PATCH /v1/settings
 { "name": "Erigo Apparel", "timezone": "Asia/Makassar" }
-200 OK   ← same body as GET
+200 OK   ← body sama dengan GET
 ```
 
-Only `name` and `timezone` can be changed. `currency` is fixed in Phase 1.
+Hanya `name` dan `timezone` yang bisa diubah. `currency` tetap di Fase 1.
 
-### Roles
+### Peran
 
 ```json
 GET /v1/roles
@@ -227,9 +230,9 @@ GET /v1/roles
   … ]
 ```
 
-The response is a constant: clients render the role picker from it instead of hardcoding §3.
+Respons ini konstan: klien merender pemilih peran dari respons ini, bukan meng-hardcode §3.
 
-### Users
+### Pengguna
 
 ```json
 GET /v1/users?status=invited
@@ -241,26 +244,26 @@ GET /v1/users?status=invited
 
 POST /v1/users/invite
 { "email": "rina@erigo.co.id", "name": "Rina", "role": "ops" }
-201 Created   ← the User above; an invitation email is sent
+201 Created   ← User seperti di atas; email undangan dikirim
 
 POST /v1/users/{id}/resend-invite
-204 No Content   ← only while status is invited; otherwise 422
+204 No Content   ← hanya selama status invited; selain itu 422
 
 PATCH /v1/users/{id}
-{ "role": "admin" }                 or   { "status": "active" }
-200 OK   ← the User
+{ "role": "admin" }                 atau   { "status": "active" }
+200 OK   ← User
 
 DELETE /v1/users/{id}
-204 No Content   ← sets status disabled; never deletes the row
+204 No Content   ← menyetel status disabled; barisnya tidak pernah dihapus
 ```
 
-- An email already used at any tenant is `422` on `email` (BR-020).
-- Only an owner can assign `owner` (BR-023).
-- The tenant's last active owner can't be demoted or disabled (BR-027).
-- `PATCH` takes `role` and `status` (`active` re-enables a disabled user) and needs no `If-Match`
-  (BR-010).
+- Email yang sudah dipakai di tenant mana pun menghasilkan `422` pada `email` (BR-020).
+- Hanya owner yang bisa memberikan peran `owner` (BR-023).
+- Owner aktif terakhir milik tenant tidak bisa diturunkan perannya atau dinonaktifkan (BR-027).
+- `PATCH` menerima `role` dan `status` (`active` mengaktifkan lagi pengguna yang nonaktif) dan tidak
+  butuh `If-Match` (BR-010).
 
-### API keys
+### API key
 
 ```json
 POST /v1/api-keys
@@ -269,27 +272,27 @@ POST /v1/api-keys
 
 201 Created
 { "id": "0192…", "name": "Warehouse scanner app", "key_prefix": "bk_live_7f3a",
-  "secret": "bk_live_7f3a91c2e8…",          ← shown exactly once, never retrievable again
+  "secret": "bk_live_7f3a91c2e8…",          ← ditampilkan tepat sekali, tidak bisa diambil lagi
   "permissions": ["products:read", "categories:read"],
   "created_by": { "id": "0192…", "name": "Budi" },
   "last_used_at": null, "created_at": "2026-08-27T09:15:00Z" }
 
 GET /v1/api-keys
 200 OK
-{ "data": [ …same shape without "secret"… ] }    ← unpaginated; revoked keys are not listed
+{ "data": [ …bentuk sama tanpa "secret"… ] }    ← tanpa paginasi; key yang dicabut tidak ditampilkan
 
 DELETE /v1/api-keys/{id}
-204 No Content   ← revokes; takes effect on the key's next request
+204 No Content   ← mencabut; berlaku pada request berikutnya dari key itu
 ```
 
-A key's permissions must be a subset of its creator's; anything else is `422` on `permissions`
-(BR-028).
+Izin sebuah key harus merupakan bagian dari izin pembuatnya; selain itu menghasilkan `422` pada
+`permissions` (BR-028).
 
 ---
 
-## 5. Brands
+## 5. Brand
 
-| Method | Path | Permission | BR |
+| Method | Path | Izin | BR |
 |---|---|---|---|
 | `GET` | `/v1/brands?q=&archived=false&limit=&cursor=` | `brands:read` | — |
 | `POST` | `/v1/brands` | `brands:write` | 030 |
@@ -310,19 +313,20 @@ POST /v1/brands
 
 PATCH /v1/brands/{id}          If-Match: 1
 { "channel_brand_ids": { "shopee": "12345", "tokopedia": "998", "tiktok": "abc" } }
-200 OK   ← the Brand, version 2
+200 OK   ← Brand, versi 2
 ```
 
-- `slug` comes from `name`, including on rename.
-- A name whose slug matches another brand's, archived ones included, is `422` on `name` (BR-030).
-- `channel_brand_ids` is replaced as a whole object.
-- `GET` lists sort by `name`; `q` matches on name.
+- `slug` diturunkan dari `name`, termasuk saat ganti nama.
+- Nama yang slug-nya sama dengan slug brand lain, termasuk brand yang diarsipkan, menghasilkan `422`
+  pada `name` (BR-030).
+- `channel_brand_ids` diganti sebagai satu objek utuh.
+- Daftar `GET` diurutkan menurut `name`; `q` mencocokkan nama.
 
 ---
 
-## 6. Categories
+## 6. Kategori
 
-| Method | Path | Permission | BR |
+| Method | Path | Izin | BR |
 |---|---|---|---|
 | `GET` | `/v1/categories?kind=&parent_id=&depth=` | `categories:read` | 031 |
 | `GET` | `/v1/categories/{id}` | `categories:read` | 033 |
@@ -341,12 +345,12 @@ POST /v1/categories
   "created_at": "2026-08-27T09:15:00Z", "updated_at": "2026-08-27T09:15:00Z" }
 
 GET /v1/categories/{id}
-200 OK   ← the Category plus the counts the move dialog needs:
-{ …, "descendant_count": 4, "product_count": 128 }      ← product_count covers the whole subtree
+200 OK   ← Category ditambah jumlah yang dibutuhkan dialog pindah:
+{ …, "descendant_count": 4, "product_count": 128 }      ← product_count mencakup seluruh subtree
 
 PATCH /v1/categories/{id}      If-Match: 1
-{ "parent_id": "0192-technical-outerwear" }      or   { "name": "Jackets & Coats" }
-200 OK   ← the Category with its new path
+{ "parent_id": "0192-technical-outerwear" }      atau   { "name": "Jackets & Coats" }
+200 OK   ← Category dengan path barunya
 
 DELETE /v1/categories/{id}
 204 No Content
@@ -354,22 +358,23 @@ DELETE /v1/categories/{id}
 { …, "errors": [ { "field": "children", "count": 4 }, { "field": "products", "count": 128 } ] }
 ```
 
-- **`path` is read-only.** The database derives it; sending it is `422` (BR-008, BR-032).
-- A rename or move rewrites every descendant's `path` in one statement and doesn't touch product
-  assignments (BR-033).
-- A move beneath the category's own descendant is `422` on `parent_id` (BR-034).
-- `parent_id: null` on `PATCH` makes the category a root.
-- **List.** Unpaginated, flat, ordered by `kind` then `path`; the client builds the tree from
+- **`path` hanya-baca.** Database yang menurunkannya; mengirimnya menghasilkan `422` (BR-008,
+  BR-032).
+- Ganti nama atau pindah menulis ulang `path` setiap turunannya dalam satu statement dan tidak
+  menyentuh penempatan produk (BR-033).
+- Memindahkan kategori ke bawah turunannya sendiri menghasilkan `422` pada `parent_id` (BR-034).
+- `parent_id: null` pada `PATCH` menjadikan kategori itu root.
+- **Daftar.** Tanpa paginasi, datar, diurutkan menurut `kind` lalu `path`; klien menyusun pohon dari
   `parent_id`.
-  - `kind` limits the list to one tree.
-  - `parent_id` starts from that node's children; omitted, it starts from the roots.
-  - `depth=1` returns one level only, for lazy-loading a large tree.
+  - `kind` membatasi daftar ke satu pohon.
+  - `parent_id` mulai dari anak-anak node itu; bila dihilangkan, mulai dari root.
+  - `depth=1` hanya mengembalikan satu tingkat, untuk lazy-loading pohon yang besar.
 
 ---
 
-## 7. Products and variants
+## 7. Produk dan varian
 
-| Method | Path | Permission | BR |
+| Method | Path | Izin | BR |
 |---|---|---|---|
 | `GET` | `/v1/products?status=&brand_id=&category_id=&q=&sort=&limit=&cursor=` | `products:read` | — |
 | `POST` | `/v1/products` | `products:write` | 009, 037 |
@@ -382,7 +387,7 @@ DELETE /v1/categories/{id}
 | `DELETE` | `/v1/variants/{id}` | `variants:write` | 012 |
 | `PUT` | `/v1/products/{id}/variant-matrix` | `variants:write` | 010, 039, 040, 041 |
 
-### 7.1 Product
+### 7.1 Produk
 
 ```json
 POST /v1/products
@@ -392,41 +397,42 @@ POST /v1/products
   "attributes": { "material": "Cotton Combed 30s" } }
 ```
 
-Only what the user supplied: `status` and `version` are **absent**, not `null`.
+Hanya yang diisi pengguna: `status` dan `version` **tidak ada**, bukan `null`.
 
 ```json
 201 Created
 { "id": "0192b7f0-…",
-  "version": 1,                                       ← server-assigned
+  "version": 1,                                       ← diisi server
   "title": "Erigo Basic Tee",
   "description": null,
-  "status": "draft",                                  ← default applied
-  "brand": { "id": "0192a1c4-…", "name": "Erigo" },   ← expanded on read
+  "status": "draft",                                  ← default diterapkan
+  "brand": { "id": "0192a1c4-…", "name": "Erigo" },   ← diperluas saat dibaca
   "categories": [ { "id": "0192-jackets", "kind": "category", "name": "Jackets",
                     "path": "apparel.outerwear.jackets" }, … ],
   "attributes": { "material": "Cotton Combed 30s" },
   "option_names": [],
   "variant_count": 0,
-  "media": [],                                        ← Media objects, by position (§8)
+  "media": [],                                        ← objek Media, urut position (§8)
   "archived_at": null,
   "created_at": "2026-08-27T09:15:00Z", "updated_at": "2026-08-27T09:15:00Z" }
 ```
 
-`GET /v1/products/{id}` returns the same body.
+`GET /v1/products/{id}` mengembalikan body yang sama.
 
 ```json
 PATCH /v1/products/{id}        If-Match: 1
 { "description": "Kaos basic 30s", "brand_id": null, "status": "active" }
-200 OK   ← the Product, version 2
+200 OK   ← Product, versi 2
 ```
 
-- **Version.** It travels in `If-Match`, never in the body; the server increments it.
-- **Clearing.** `null` clears `description` or `brand_id` (BR-009).
-- **Replaced as a whole.** `category_ids` replaces all assignments; `attributes` replaces the
-  whole object.
-- **`option_names`** changes only through the variant matrix (§7.3); sending it here is `422`.
-- **Status.** `"status": "active"` runs the publish check (BR-038) and `"draft"` unpublishes.
-  `DELETE` archives.
+- **Versi.** Dibawa di `If-Match`, tidak pernah di body; server yang menaikkannya.
+- **Mengosongkan.** `null` mengosongkan `description` atau `brand_id` (BR-009).
+- **Diganti utuh.** `category_ids` mengganti semua penempatan; `attributes` mengganti seluruh
+  objek.
+- **`option_names`** hanya berubah lewat matriks varian (§7.3); mengirimnya di sini menghasilkan
+  `422`.
+- **Status.** `"status": "active"` menjalankan publish check (BR-038) dan `"draft"` membatalkan
+  publikasi. `DELETE` mengarsipkan.
 
 ```json
 422 publish_check_failed
@@ -437,7 +443,7 @@ PATCH /v1/products/{id}        If-Match: 1
     { "field": "categories", "detail": "At least one category of kind category is required" } ] }
 ```
 
-**List.**
+**Daftar.**
 
 ```json
 GET /v1/products?status=active&category_id=0192-apparel&q=tee&sort=-updated_at
@@ -448,17 +454,17 @@ GET /v1/products?status=active&category_id=0192-apparel&q=tee&sort=-updated_at
       "variant_count": 10,
       "price_min": { "amount": 19900000, "currency": "IDR" },
       "price_max": { "amount": 21900000, "currency": "IDR" },
-      "cover_url": "https://…/200.webp",              ← 200px derivative of the first image, or null
+      "cover_url": "https://…/200.webp",              ← turunan 200px dari gambar pertama, atau null
       "updated_at": "2026-08-27T09:15:00Z" } ],
   "next_cursor": "eyJ…" }
 ```
 
-- `category_id` matches that category **and its descendants**.
-- `q` is a trigram match on `title`.
-- `sort` accepts `-created_at` (default), `-updated_at` or `title`.
-- Archived products appear only with `status=archived`.
+- `category_id` mencocokkan kategori itu **beserta turunannya**.
+- `q` adalah pencocokan trigram pada `title`.
+- `sort` menerima `-created_at` (default), `-updated_at`, atau `title`.
+- Produk yang diarsipkan hanya muncul dengan `status=archived`.
 
-### 7.2 Variant
+### 7.2 Varian
 
 ```json
 POST /v1/products/{id}/variants
@@ -468,37 +474,37 @@ POST /v1/products/{id}/variants
 201 Created
 { "id": "0192…", "product_id": "0192b7f0-…", "version": 1,
   "option_values": ["Black", "S"], "sku": "TS-BLK-S", "barcode": null,
-  "price": { "amount": 19900000, "currency": "IDR" },   ← currency defaulted from the tenant
+  "price": { "amount": 19900000, "currency": "IDR" },   ← currency default dari tenant
   "compare_at_price": null, "weight_grams": 200,
   "archived_at": null,
   "created_at": "2026-08-27T09:15:00Z", "updated_at": "2026-08-27T09:15:00Z" }
 
 PATCH /v1/variants/{id}        If-Match: 1
 { "barcode": "8991234567890", "compare_at_price": null }
-200 OK   ← the Variant, version 2
+200 OK   ← Variant, versi 2
 
 GET /v1/products/{id}/variants
 200 OK
-{ "data": [ …Variant… ] }      ← unpaginated, ordered by option_values
+{ "data": [ …Variant… ] }      ← tanpa paginasi, urut option_values
 ```
 
-- `option_values` must have one entry per `option_names` entry and be unique among the product's
-  live variants (BR-040). It changes only through the matrix.
-- A clashing SKU is `409 duplicate_sku` (BR-039).
+- `option_values` harus punya satu entri untuk setiap entri `option_names` dan unik di antara varian
+  hidup milik produk itu (BR-040). Nilainya hanya berubah lewat matriks.
+- SKU yang bentrok menghasilkan `409 duplicate_sku` (BR-039).
 
-### 7.3 The variant matrix
+### 7.3 Matriks varian
 
-`PUT /v1/products/{id}/variant-matrix` saves the whole option grid in **one request** (BR-041).
+`PUT /v1/products/{id}/variant-matrix` menyimpan seluruh grid opsi dalam **satu request** (BR-041).
 
-The problem it solves: a merchandiser opens the grid, pastes prices from Excel, removes a colourway
-and adds a size. Without this endpoint the front end would have to diff the grid itself and fire 25
-separate requests, with no transaction and no ordering guarantee. A partial failure would leave the
-grid in a state neither the user nor the system understands.
+Masalah yang diselesaikannya: seorang merchandiser membuka grid, menempelkan harga dari Excel,
+menghapus satu varian warna, dan menambah satu ukuran. Tanpa endpoint ini, front end harus menghitung
+selisih grid sendiri dan mengirim 25 request terpisah, tanpa transaksi dan tanpa jaminan urutan.
+Kegagalan sebagian akan meninggalkan grid dalam keadaan yang tidak dipahami pengguna maupun sistem.
 
-It is **declarative** ("here is what the grid should be") and the server computes the diff.
+Endpoint ini **deklaratif** ("beginilah seharusnya grid ini") dan server yang menghitung selisihnya.
 
 ```json
-PUT /v1/products/{id}/variant-matrix      If-Match: 3      ← the PRODUCT's version
+PUT /v1/products/{id}/variant-matrix      If-Match: 3      ← versi PRODUK
 { "option_names": ["Colour", "Size"],
   "rows": [
     { "option_values": ["Black","S"], "sku": "TS-BLK-S",
@@ -523,42 +529,43 @@ PUT /v1/products/{id}/variant-matrix      If-Match: 3      ← the PRODUCT's ver
       "code": "duplicate_sku", "detail": "SKU TS-WHT-S is used by Erigo Oversize Tee" } ] }
 ```
 
-- **Matching.** Rows match the product's live variants by `option_values`. A row that matches an
-  archived variant restores it, so re-adding a colourway keeps its SKU.
-- **One bad row fails alone.** The other rows still save, and every row gets a result (BR-041).
-  The response is `200` even when some rows failed.
+- **Pencocokan.** Baris dicocokkan dengan varian hidup milik produk menurut `option_values`. Baris
+  yang cocok dengan varian yang diarsipkan akan memulihkannya, jadi varian warna yang ditambahkan
+  lagi tetap memakai SKU-nya.
+- **Satu baris buruk gagal sendirian.** Baris lain tetap tersimpan, dan setiap baris mendapat hasil
+  (BR-041). Responsnya tetap `200` meski ada baris yang gagal.
 - **`archive_missing`.**
-  - `true` archives the live variants not sent.
-  - `false` patches part of a grid without archiving anything; the editor uses it for a filtered
-    view.
-  - Changing `option_names` with `archive_missing: false` is `422`: variants of the old shape
-    can't survive.
-- **Request-level errors.** A row whose `option_values` doesn't match `option_names` makes the
-  whole request `422` before anything is written. So do duplicate rows and a Colour axis not at
-  position 0 (BR-040).
-- **Concurrency.** The product's `version` guards the matrix, and a successful save increments it.
+  - `true` mengarsipkan varian hidup yang tidak dikirim.
+  - `false` menambal sebagian grid tanpa mengarsipkan apa pun; editor memakainya untuk tampilan
+    yang difilter.
+  - Mengubah `option_names` dengan `archive_missing: false` menghasilkan `422`: varian berbentuk
+    lama tidak bisa bertahan.
+- **Error tingkat request.** Baris yang `option_values`-nya tidak cocok dengan `option_names`
+  membuat seluruh request `422` sebelum apa pun ditulis. Begitu juga baris duplikat dan sumbu Colour
+  yang tidak berada di posisi 0 (BR-040).
+- **Konkurensi.** `version` produk menjaga matriks, dan penyimpanan yang berhasil menaikkannya.
 
-### 7.4 Matrix versus `PATCH /v1/variants/{id}`
+### 7.4 Matriks versus `PATCH /v1/variants/{id}`
 
-Different jobs. Don't use one for the other.
+Tugasnya berbeda. Jangan pakai yang satu untuk yang lain.
 
 | | `variant-matrix` | `PATCH /variants/{id}` |
 |---|---|---|
-| Scope | Every variant of the product | Exactly one |
-| Can create | Yes | No |
-| Can archive | Yes | No |
-| Changes grid shape | Yes | No |
-| Typical caller | Matrix editor's Save | Variant detail drawer |
-| Concurrency | `If-Match` on the product | `If-Match` on that variant |
+| Cakupan | Semua varian produk | Tepat satu |
+| Bisa membuat | Ya | Tidak |
+| Bisa mengarsipkan | Ya | Tidak |
+| Mengubah bentuk grid | Ya | Tidak |
+| Pemanggil biasa | Tombol Save di editor matriks | Drawer detail varian |
+| Konkurensi | `If-Match` pada produk | `If-Match` pada varian itu |
 
-Someone fixing one barcode uses `PATCH`. Sending a whole-grid `PUT` for that would overwrite a
-merchandiser's concurrent edit.
+Orang yang memperbaiki satu barcode memakai `PATCH`. Mengirim `PUT` seluruh grid untuk itu akan
+menimpa suntingan merchandiser yang berjalan bersamaan.
 
 ---
 
 ## 8. Media
 
-| Method | Path | Permission | BR |
+| Method | Path | Izin | BR |
 |---|---|---|---|
 | `POST` | `/v1/media/presign` | `media:write` | 051, 053 |
 | `POST` | `/v1/media/confirm` | `media:write` | 050, 051 |
@@ -566,7 +573,7 @@ merchandiser's concurrent edit.
 | `DELETE` | `/v1/media/{id}` | `media:write` | 012 |
 | `PATCH` | `/v1/products/{id}/media/order` | `media:write` | — |
 
-Uploads go **directly from the browser to R2**; image bytes never pass through the API (BR-051).
+Unggahan berjalan **langsung dari browser ke R2**; byte gambar tidak pernah melewati API (BR-051).
 
 ```json
 1. POST /v1/media/presign
@@ -575,7 +582,7 @@ Uploads go **directly from the browser to R2**; image bytes never pass through t
    { "upload_url": "https://…r2…", "r2_key": "0192-tenant/products/0192…/0193…",
      "expires_in": 600 }
 
-2. PUT <upload_url>            raw file bytes, straight to R2, with a progress bar
+2. PUT <upload_url>            byte file mentah, langsung ke R2, dengan progress bar
 
 3. POST /v1/media/confirm
    { "r2_key": "0192-tenant/products/0192…/0193…", "product_id": "0192…", "variant_id": null }
@@ -584,44 +591,44 @@ Uploads go **directly from the browser to R2**; image bytes never pass through t
      "r2_key": "0192-tenant/products/0192…/0193…",
      "mime_type": "image/jpeg", "bytes": 5242880, "width": 3000, "height": 4000,
      "position": 0,
-     "url": "https://…",                    ← presigned GET of the original, 1 hour (BR-053)
-     "derivatives": {},                     ← filled by the worker within ~15s (BR-052)
+     "url": "https://…",                    ← GET presigned untuk file asli, 1 jam (BR-053)
+     "derivatives": {},                     ← diisi worker dalam ~15 detik (BR-052)
      "created_at": "2026-08-27T09:15:00Z" }
 ```
 
-- **Presign.** It accepts `image/jpeg`, `image/png` and `image/webp` up to 20 MB; anything else
-  is `422` (BR-051).
-- **Confirm.** It checks content type and size against R2's `HEAD` before saving the row. A key
-  for an object that was never uploaded is `422`.
-- **Derivatives.** Once ready, `derivatives` is
-  `{ "1600": "https://…", "800": "https://…", "200": "https://…" }`, each a presigned 1-hour URL.
-  The product body carries the same Media objects.
+- **Presign.** Menerima `image/jpeg`, `image/png`, dan `image/webp` hingga 20 MB; selain itu
+  menghasilkan `422` (BR-051).
+- **Confirm.** Memeriksa content type dan ukuran terhadap `HEAD` dari R2 sebelum menyimpan baris.
+  Key untuk objek yang tidak pernah diunggah menghasilkan `422`.
+- **Turunan (derivative).** Begitu siap, `derivatives` berisi
+  `{ "1600": "https://…", "800": "https://…", "200": "https://…" }`, masing-masing URL presigned
+  1 jam. Body produk membawa objek Media yang sama.
 
 ```json
 PATCH /v1/media/{id}
-{ "variant_id": "0192…" }          or   { "variant_id": null }    ← assign to a variant / product level
-200 OK   ← the Media
+{ "variant_id": "0192…" }          atau   { "variant_id": null }    ← pasang ke varian / tingkat produk
+200 OK   ← Media
 
 PATCH /v1/products/{id}/media/order
-{ "media_ids": ["0193…", "0194…", "0195…"] }    ← every media id of the product, in the new order
+{ "media_ids": ["0193…", "0194…", "0195…"] }    ← setiap id media milik produk, dalam urutan baru
 200 OK
-{ "data": [ …Media, by position… ] }
+{ "data": [ …Media, urut position… ] }
 
 DELETE /v1/media/{id}
-204 No Content   ← removes the row; the worker deletes the R2 objects
+204 No Content   ← menghapus baris; worker menghapus objek R2-nya
 ```
 
-Media has no `version`, so neither `PATCH` takes `If-Match`. An order list that doesn't contain
-exactly the product's media is `422`.
+Media tidak punya `version`, jadi kedua `PATCH` tidak memakai `If-Match`. Daftar urutan yang tidak
+berisi tepat media milik produk itu menghasilkan `422`.
 
 ---
 
-## 9. Catalog export and jobs
+## 9. Ekspor katalog dan job
 
-| Method | Path | Permission | BR |
+| Method | Path | Izin | BR |
 |---|---|---|---|
 | `GET` | `/v1/products/export?template=&format=csv&status=&brand_id=&category_id=` | `exports:read` | 060, 061, 062 |
-| `GET` | `/v1/jobs/{id}` | the job's own permission (`exports:read` for an export) | 060, 063 |
+| `GET` | `/v1/jobs/{id}` | izin milik job itu (`exports:read` untuk ekspor) | 060, 063 |
 
 ```json
 GET /v1/products/export?template=shopee&format=csv&status=active&category_id=0192-apparel
@@ -642,32 +649,33 @@ GET /v1/jobs/{id}
         "products": [ { "id": "0192…", "title": "Erigo Basic Tee" } ] },
       { "missing": "channel_category_id",
         "products": [ { "id": "0192…", "title": "Erigo Cargo Pants" } ] } ] },
-  "error": null }                          ← a Problem when state is failed
+  "error": null }                          ← sebuah Problem saat state bernilai failed
 ```
 
-- **Template.** `template` is one of `shopee`, `tokopedia`, `tiktok`, `lazada`, `blibli` or
-  `generic`. It renders the catalog into the column layout of that marketplace's bulk-upload sheet
-  (BR-061). The filters match §7.1's product list.
-- **Missing mappings.** They never block the export. Those cells are left blank and the products
-  are listed in `incomplete`, grouped by what is missing (BR-062).
-- **Download link.** Every `GET` of a finished job signs a fresh 15-minute `download_url`, which
-  is how a link is regenerated (BR-063). `result` is `null` until `state` is `done`.
+- **Template.** `template` salah satu dari `shopee`, `tokopedia`, `tiktok`, `lazada`, `blibli`,
+  atau `generic`. Template merender katalog ke tata letak kolom lembar bulk-upload marketplace itu
+  (BR-061). Filternya sama dengan daftar produk di §7.1.
+- **Mapping yang kurang.** Tidak pernah menghalangi ekspor. Sel-sel itu dibiarkan kosong dan
+  produknya dicantumkan di `incomplete`, dikelompokkan menurut apa yang kurang (BR-062).
+- **Tautan unduh.** Setiap `GET` pada job yang sudah selesai menandatangani `download_url` baru yang
+  berlaku 15 menit; begitulah tautan dibuat ulang (BR-063). `result` bernilai `null` sampai `state`
+  bernilai `done`.
 
-No `channels` table is involved: this is pure CSV generation, and the merchant uploads the file
-themselves. `GET /v1/jobs/{id}` exists from Phase 1 because the export needs it, and every later
-phase's async work reuses it unchanged.
+Tidak ada tabel `channels` yang terlibat: ini murni pembuatan CSV, dan merchant mengunggah filenya
+sendiri. `GET /v1/jobs/{id}` ada sejak Fase 1 karena ekspor membutuhkannya, dan setiap pekerjaan
+async di fase berikutnya memakainya tanpa perubahan.
 
 ---
 
-## 10. Not in this phase
+## 10. Tidak ada di fase ini
 
-Requested often enough during the pilot that they are worth naming explicitly:
+Cukup sering diminta selama pilot sehingga layak disebut secara eksplisit:
 
-| Endpoint | Phase |
+| Endpoint | Fase |
 |---|---|
 | `POST /v1/products/bulk` | 2 |
 | `POST /v1/products/import` | 2 |
-| Anything under `/v1/orders` | 2 |
-| Anything under `/v1/channels` or `/v1/hooks` | 3 |
-| Anything under `/v1/inventory` or `/v1/locations` | 4 |
-| Password change and reset | not yet scheduled |
+| Apa pun di bawah `/v1/orders` | 2 |
+| Apa pun di bawah `/v1/channels` atau `/v1/hooks` | 3 |
+| Apa pun di bawah `/v1/inventory` atau `/v1/locations` | 4 |
+| Ganti dan reset password | belum dijadwalkan |

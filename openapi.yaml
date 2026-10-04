@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 1.6.0
+  version: 1.6.1
   description: |
     Phase 1 — Catalog & Foundation.
 
@@ -16,8 +16,8 @@ info:
     are meant to make. `P1-011` added the three auth paths below.
 
     That leaves this file **incomplete** relative to `04-api-spec.md` §2–§10, not in conflict with
-    it. The rule in `CLAUDE.md` still holds for anything both files describe: change one, change
-    the other, in the same commit.
+    it. For anything both files describe they must agree: change one, change the other, in the
+    same commit.
 
     `/healthz` is deliberately absent and stays that way. A liveness probe is a property of how
     the service is deployed, not of the contract, and putting it here would make every future
@@ -139,7 +139,7 @@ paths:
         explain what a role means without hardcoding the matrix from `04-api-spec.md` §3.
 
         Requires `users:read`, because it is part of the team-management surface. An `ops` user
-        gets `403` naming that permission (BR-024, `01-product.md` §5.5).
+        gets `403` naming that permission (BR-024, `01-product-requirements.md` §5.5).
       responses:
         "200":
           description: The seeded roles.
