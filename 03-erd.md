@@ -1,6 +1,7 @@
 # Phase 1 — Catalog & Foundation · Data Model
 
-**9 tables.** No prior schema — this phase creates the database.
+**10 tables.** No prior schema — this phase creates the database. Constraints are tagged with the
+rule they enforce (`BR-xxx`, see `02-business-rules.md`).
 
 ---
 
@@ -32,17 +33,19 @@ to sit in several trees of different `kind` at once.
 
 Applied to every table in every phase.
 
-- **Keys** are UUID v7, generated application-side. Time-ordered UUIDs keep B-tree inserts
-  append-only, which random v4 does not. Never expose a sequential integer id in an API.
-- **Money** is `bigint` in minor units plus `char(3)` currency. `2000000` + `IDR` is Rp 20.000.
-  Never a float. IDR has no minor unit in practice, but keep the scale of 2 uniform so
-  multi-currency is not a migration.
-- **Timestamps** are `timestamptz`, always UTC. `tenants.timezone` is applied at render time.
-- **Soft delete** via `archived_at timestamptz` only where an audit trail requires it.
-- **Optimistic concurrency** via `version integer NOT NULL DEFAULT 1`, checked in the
-  `UPDATE … WHERE version = $n` predicate and surfaced as the `If-Match` header.
+- **Keys** are `uuid`, v7, generated application-side (BR-005).
+- **Money** is `bigint` in minor units plus `char(3)` currency. `2000000` + `IDR` is Rp 20.000
+  (BR-006).
+- **Timestamps** are `timestamptz`, always UTC (BR-007).
+- **Archive, don't delete** via `archived_at timestamptz` on brands, categories, products and
+  variants (BR-012).
+- **Optimistic concurrency** via `version integer NOT NULL DEFAULT 1` on brands, categories,
+  products and variants, checked in the `UPDATE … WHERE version = $n` predicate and surfaced as the
+  `If-Match` header (BR-010).
 - **Every tenant table** gets `ENABLE` + `FORCE ROW LEVEL SECURITY` and a `tenant_isolation`
-  policy. Shown once below; assume it on all of them.
+  policy (BR-001). Shown once below; assume it on all of them.
+- **A copied `tenant_id` on a child table** is guarded by a composite foreign key to the parent's
+  `(id, tenant_id)` (BR-004).
 
 ---
 
@@ -56,7 +59,7 @@ CREATE EXTENSION IF NOT EXISTS unaccent;   -- slugify
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- product title search
 CREATE EXTENSION IF NOT EXISTS citext;     -- users.email, see 3.2
 
--- Applied to every tenant-owned table. Shown once, assume everywhere.
+-- BR-001. Applied to every tenant-owned table. Shown once, assume everywhere.
 -- CREATE POLICY tenant_isolation ON <table>
 --     USING      (tenant_id = current_setting('app.tenant_id', true)::uuid)
 --     WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
@@ -84,7 +87,8 @@ CREATE TABLE users (
     id            uuid PRIMARY KEY,
     tenant_id     uuid NOT NULL REFERENCES tenants(id),
     email         citext NOT NULL,
-    password_hash text,                 -- null while an invitation is outstanding
+    password_hash text,                 -- null while invited; the invitation token is
+                                        -- signed and expiring, not stored (BR-026)
     name          text NOT NULL,
     role          text NOT NULL DEFAULT 'viewer'
                   CHECK (role IN ('owner','admin','ops','warehouse','viewer')),
@@ -92,7 +96,7 @@ CREATE TABLE users (
                   CHECK (status IN ('invited','active','disabled')),
     last_login_at timestamptz,
     created_at    timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (email)
+    UNIQUE (email)                      -- BR-020
 );
 -- Email is unique across the whole system, not per tenant.
 --
@@ -111,8 +115,8 @@ CREATE TABLE refresh_tokens (
     tenant_id  uuid NOT NULL REFERENCES tenants(id),
     user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash text NOT NULL,           -- SHA-256; the plaintext lives only in the cookie
-    -- Rotation chain: a reused (already-rotated) token means theft. Revoke the
-    -- whole chain rather than just rejecting the one request.
+    -- BR-022. Rotation chain: a reused (already-rotated) token means theft. Revoke
+    -- the whole chain rather than just rejecting the one request.
     rotated_from uuid REFERENCES refresh_tokens(id),
     expires_at timestamptz NOT NULL,
     revoked_at timestamptz,
@@ -125,8 +129,8 @@ CREATE TABLE api_keys (
     id          uuid PRIMARY KEY,
     tenant_id   uuid NOT NULL REFERENCES tenants(id),
     name        text NOT NULL,
-    key_hash    text NOT NULL UNIQUE,   -- SHA-256; plaintext shown once at creation
-    key_prefix  text NOT NULL,          -- first 8 chars, so a user can identify it in a list
+    key_hash    text NOT NULL UNIQUE,   -- SHA-256; plaintext shown once at creation (BR-028)
+    key_prefix  text NOT NULL,          -- 'bk_live_' + 4 chars, so a user can tell keys apart
     permissions text[] NOT NULL DEFAULT '{}',
     created_by  uuid REFERENCES users(id),
     last_used_at timestamptz,
@@ -142,15 +146,17 @@ CREATE TABLE brands (
     id         uuid PRIMARY KEY,
     tenant_id  uuid NOT NULL REFERENCES tenants(id),
     name       text NOT NULL,
-    slug       text NOT NULL,
-    -- Marketplaces keep their own brand registries and reject a listing whose
+    slug       text NOT NULL,           -- derived from name, never client-supplied (BR-030)
+    -- BR-030. Marketplaces keep their own brand registries and reject a listing whose
     -- brand id is unknown to them. Mapping lives here so it is set once per
     -- brand rather than repeated on every product. Consumed by the Phase 1 CSV
     -- export and, from Phase 3, by the listing publisher.
     --   {"shopee": "12345", "tokopedia": "998", "tiktok": "abc"}
     channel_brand_ids jsonb NOT NULL DEFAULT '{}'::jsonb,
+    version    integer NOT NULL DEFAULT 1,
     archived_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, slug)
 );
 CREATE INDEX ON brands (tenant_id) WHERE archived_at IS NULL;
@@ -160,13 +166,15 @@ CREATE TABLE categories (
     id         uuid PRIMARY KEY,
     tenant_id  uuid NOT NULL REFERENCES tenants(id),
     parent_id  uuid REFERENCES categories(id),
-    -- Independent trees. One product may belong to one of each kind at once.
+    -- BR-031. Independent trees; a product may sit in several at once.
     kind       text NOT NULL DEFAULT 'category'
                CHECK (kind IN ('category','series','collection','activity','custom')),
     name       text NOT NULL,
-    path       ltree NOT NULL,          -- derived by trigger, never client-supplied
+    path       ltree NOT NULL,          -- derived by trigger, never client-supplied (BR-032)
+    version    integer NOT NULL DEFAULT 1,
     archived_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, kind, path)
 );
 CREATE INDEX ON categories USING gist (path);
@@ -179,7 +187,7 @@ CREATE TABLE products (
     title        text NOT NULL,
     description  text,
     brand_id     uuid REFERENCES brands(id),   -- nullable: not every product has a brand
-    status       text NOT NULL DEFAULT 'draft'
+    status       text NOT NULL DEFAULT 'draft'          -- BR-037
                  CHECK (status IN ('draft','active','archived')),
     -- Attributes that vary by category and by marketplace, where a column per
     -- field would be a migration every time a channel changes its requirements.
@@ -187,9 +195,9 @@ CREATE TABLE products (
     --    "channel":{"shopee":{"category_id":"100017"}}}
     -- Never put anything you filter, sort or enforce uniqueness on in here.
     attributes   jsonb NOT NULL DEFAULT '{}'::jsonb,
-    -- Ordered option axes, e.g. ['Colour','Size']. variants.option_values is
-    -- positional against THIS array — the pairing is what makes the matrix
-    -- editor a pivot rather than a join.
+    -- BR-040. Ordered option axes, e.g. ['Colour','Size']; Colour is position 0
+    -- when present. variants.option_values is positional against THIS array --
+    -- the pairing is what makes the matrix editor a pivot rather than a join.
     option_names text[] NOT NULL DEFAULT '{}',
     version      integer NOT NULL DEFAULT 1,
     archived_at  timestamptz,
@@ -201,14 +209,14 @@ CREATE INDEX ON products (tenant_id, brand_id) WHERE archived_at IS NULL;
 CREATE INDEX ON products USING gin (attributes jsonb_path_ops);
 CREATE INDEX ON products USING gin (title gin_trgm_ops);   -- the search box
 ALTER TABLE products ADD CONSTRAINT products_id_tenant_uq UNIQUE (id, tenant_id);
-ALTER TABLE products ADD CONSTRAINT products_same_tenant_as_brand
+ALTER TABLE products ADD CONSTRAINT products_same_tenant_as_brand   -- BR-004
     FOREIGN KEY (brand_id, tenant_id) REFERENCES brands (id, tenant_id);
 
 CREATE TABLE variants (
     id            uuid PRIMARY KEY,
     tenant_id     uuid NOT NULL REFERENCES tenants(id),
     product_id    uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    sku           text,          -- nullable: a draft variant may not have one yet
+    sku           text,          -- nullable while drafting (BR-039); required to publish (BR-038)
     barcode       text,
     -- Positional against products.option_names: ['Black','S']
     option_values text[] NOT NULL DEFAULT '{}',
@@ -216,44 +224,58 @@ CREATE TABLE variants (
     compare_at_amount bigint CHECK (compare_at_amount IS NULL OR compare_at_amount >= 0),
     currency      char(3) NOT NULL DEFAULT 'IDR',
     weight_grams  integer NOT NULL DEFAULT 0 CHECK (weight_grams >= 0),
-    -- NOTE: no quantity column, in any phase. Stock is never a property of a
-    -- variant — it is a property of (variant, location) and lives in the
-    -- ledger from Phase 4. buffer_qty ALTERs in at Phase 4 as well.
+    -- BR-015: no quantity column, in any phase. Stock is a property of
+    -- (variant, location) and lives in the ledger from Phase 4. buffer_qty
+    -- ALTERs in at Phase 4 as well.
     archived_at   timestamptz,
     version       integer NOT NULL DEFAULT 1,
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
--- Partial unique index rather than a UNIQUE constraint: SKU is optional, so
--- many variants may sit with sku IS NULL while non-null ones stay unique.
+-- BR-039. Partial unique index rather than a UNIQUE constraint: SKU is optional,
+-- so many variants may sit with sku IS NULL while non-null ones stay unique.
 CREATE UNIQUE INDEX variants_tenant_sku_uq
     ON variants (tenant_id, sku) WHERE sku IS NOT NULL;
 CREATE INDEX ON variants (tenant_id, product_id);
+-- BR-040: one live variant per option combination. The matrix diff keys on it.
+CREATE UNIQUE INDEX variants_product_options_uq
+    ON variants (product_id, option_values) WHERE archived_at IS NULL;
 ALTER TABLE variants ADD CONSTRAINT variants_id_tenant_uq UNIQUE (id, tenant_id);
-ALTER TABLE variants ADD CONSTRAINT variants_same_tenant_as_product
+ALTER TABLE variants ADD CONSTRAINT variants_same_tenant_as_product  -- BR-004
     FOREIGN KEY (product_id, tenant_id) REFERENCES products (id, tenant_id);
 
 CREATE TABLE product_categories (
-    tenant_id   uuid NOT NULL,
-    product_id  uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    category_id uuid NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-    PRIMARY KEY (product_id, category_id)
+    tenant_id   uuid NOT NULL REFERENCES tenants(id),
+    product_id  uuid NOT NULL,
+    category_id uuid NOT NULL,
+    PRIMARY KEY (product_id, category_id),
+    -- BR-004: both sides must belong to this row's tenant.
+    CONSTRAINT product_categories_same_tenant_as_product
+        FOREIGN KEY (product_id, tenant_id) REFERENCES products (id, tenant_id) ON DELETE CASCADE,
+    CONSTRAINT product_categories_same_tenant_as_category
+        FOREIGN KEY (category_id, tenant_id) REFERENCES categories (id, tenant_id) ON DELETE CASCADE
 );
 CREATE INDEX ON product_categories (tenant_id, category_id);
 
 CREATE TABLE product_media (
     id         uuid PRIMARY KEY,
     tenant_id  uuid NOT NULL REFERENCES tenants(id),
-    product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    variant_id uuid REFERENCES variants(id) ON DELETE SET NULL,  -- null = product-level
-    r2_key     text NOT NULL,      -- an object key, never a URL: URLs expire, keys do not
+    product_id uuid NOT NULL,
+    variant_id uuid,                                  -- null = product-level
+    r2_key     text NOT NULL,      -- an object key, never a URL (BR-050)
     mime_type  text NOT NULL,
     bytes      bigint NOT NULL,
     width      integer,
     height     integer,
     position   integer NOT NULL DEFAULT 0,
     derivatives jsonb NOT NULL DEFAULT '{}'::jsonb,  -- {"800":"…/x_800.webp"}
-    created_at timestamptz NOT NULL DEFAULT now()
+    created_at timestamptz NOT NULL DEFAULT now(),
+    -- BR-004. SET NULL (variant_id) clears only the variant, never tenant_id.
+    CONSTRAINT product_media_same_tenant_as_product
+        FOREIGN KEY (product_id, tenant_id) REFERENCES products (id, tenant_id) ON DELETE CASCADE,
+    CONSTRAINT product_media_same_tenant_as_variant
+        FOREIGN KEY (variant_id, tenant_id) REFERENCES variants (id, tenant_id)
+        ON DELETE SET NULL (variant_id)
 );
 CREATE INDEX ON product_media (tenant_id, product_id, position);
 ```
@@ -263,8 +285,8 @@ to live and Phase 1 is the only sensible place for it.
 
 ### 3.4 Category path trigger
 
-`path` is derived, never accepted from a client. A rename or a move rewrites the subtree
-atomically, so no application code path can produce an inconsistent tree.
+Enforces BR-032 (derived path, subtree rewritten in one statement), BR-034 (no cycles) and
+BR-035 (same-named siblings are disambiguated).
 
 ```sql
 -- ltree labels accept only [A-Za-z0-9_], so names are slugified.
@@ -346,12 +368,11 @@ autodiscovery matches items by it (Phase 3). A variant with `sku IS NULL` theref
 upserted, imported into, or auto-mapped — it can only be created and then edited by id.
 
 That is the right trade for a draft a merchandiser is still building, and the wrong state for
-anything published. **Enforce SKU at the point of publication, not at insertion:** a product
-cannot leave `status = 'draft'` while any of its variants lack a SKU, and (from Phase 3) a
-null-SKU variant cannot be attached to a channel listing. Keep the check in the publish path,
-not as a table constraint, so drafting stays frictionless.
+anything published. So SKU is enforced when a product is published (the BR-038 publish check), not
+when a variant is inserted. From Phase 3, a variant with no SKU also can't be attached to a channel
+listing.
 
-### 4.2 No quantity column, ever
+### 4.2 No quantity column, ever (BR-015)
 
 There is no `qty` on `variants` and there never will be. Quantity is a property of
 *(variant, location)*, and even then it is derived from an append-only ledger rather than

@@ -14,25 +14,27 @@ then fix the code.
 
 | File | Answers | Authoritative for |
 |---|---|---|
-| `01-tdd.md` | Why this phase exists, architecture, tenancy, domain rules, non-functionals | Architecture and invariants |
-| `02-erd.md` | Tables, columns, indexes, constraints, triggers | The database shape |
-| `03-api-spec.md` | Conventions, endpoints, payloads, error codes | The HTTP contract, in prose |
+| `01-product.md` | Why this phase exists, scope, screens, journeys + acceptance criteria, architecture, non-functionals | What "done" means for a feature |
+| `02-business-rules.md` | Every rule, numbered `BR-xxx`, with its why | What must always be true |
+| `03-erd.md` | Tables, columns, indexes, constraints, triggers | The database shape |
+| `04-api-spec.md` | Conventions, endpoints, request and response bodies, error codes | The HTTP contract, in prose |
 | `openapi.yaml` | The same contract, machine-readable | Code generation in both repos |
-| `04-flows.md` | Screens, journeys, acceptance criteria | What "done" means for a feature |
 | `05-backlog.md` | Every feature, ordered, with status | What to build next |
+
+`03-erd.md` and `04-api-spec.md` are written to be read on their own, without the other docs.
 
 `openapi.yaml` is **hand-authored here**, not generated from backend code. That inversion is the
 whole point of this repo: the backend conforms to the contract rather than the contract
 documenting whatever the backend happens to do.
 
-`03-api-spec.md` and `openapi.yaml` must agree. If you change one, change the other in the same
+`04-api-spec.md` and `openapi.yaml` must agree. If you change one, change the other in the same
 commit. CI fails the PR otherwise.
 
 ---
 
 ## What does NOT belong here
 
-- Migrations. `02-erd.md` describes the schema; `backend/db/migrations/` implements it.
+- Migrations. `03-erd.md` describes the schema; `backend/db/migrations/` implements it.
 - Go or TypeScript source of any kind.
 - Component designs, CSS, copy decks.
 - Deployment scripts, secrets, environment config.
@@ -76,22 +78,21 @@ speculative, or someone forgot. `05-backlog.md` is where that is tracked.
 ## Invariants
 
 These hold across every phase. Changing one is a breaking change to both repos and needs an
-explicit decision, not a PR comment.
+explicit decision, not a PR comment. Full text in `02-business-rules.md` §1.
 
-- **Tenancy.** Every tenant-owned table carries `tenant_id` with `ENABLE` + `FORCE ROW LEVEL
-  SECURITY`. A denormalised `tenant_id` on a child table is protected by a composite foreign key.
-- **Keys** are UUID v7, generated application-side. Never a sequential integer in an API.
-- **Money** is `{"amount": <bigint minor units>, "currency": "IDR"}`. Never a float, never a
-  decimal string.
-- **Time** is `timestamptz` in UTC, RFC 3339 with offset on the wire. Tenant timezone is applied
-  at render time only.
-- **Server-managed fields** — `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path` —
-  are never accepted from a client.
-- **Omitting a field takes its default. Sending `null` is a validation error.** These are not
-  the same thing.
-- **Concurrency** is `version` + the `If-Match` header on every `PATCH`.
-- **There is no quantity column on `variants`, in any phase.** Stock is a property of
-  (variant, location) and arrives in Phase 4 as an append-only ledger. See `02-erd.md` §4.2.
+- **Tenancy** (BR-001–004). Every tenant-owned table carries `tenant_id` with `ENABLE` + `FORCE ROW
+  LEVEL SECURITY`. A denormalised `tenant_id` on a child table is protected by a composite foreign
+  key.
+- **Keys** are UUID v7, generated application-side (BR-005).
+- **Money** is `{"amount": <bigint minor units>, "currency": "IDR"}` (BR-006).
+- **Time** is `timestamptz` in UTC, RFC 3339 with offset on the wire (BR-007).
+- **Server-managed fields** (`id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`,
+  `slug`) sent by a client are `422`, on create and update (BR-008).
+- **Omitted vs `null`** (BR-009). Create: omitted takes the default, `null` is `422`. `PATCH`:
+  omitted is unchanged, `null` clears a nullable field.
+- **Concurrency** is `version` + `If-Match` on every `PATCH` to a versioned resource: products,
+  variants, brands, categories (BR-010).
+- **There is no quantity column on `variants`, in any phase** (BR-015).
 
 ---
 
@@ -107,8 +108,11 @@ standalone value without needing channels. It generates a file the merchant uplo
 
 ## Working in this repo
 
-- **Read before writing.** `01-tdd.md` §3 (tenancy) and `02-erd.md` §2 (conventions) explain most
-  "why is it like this" questions.
+- **Read before writing.** `02-business-rules.md` §1 (platform) and `03-erd.md` §2 (conventions)
+  explain most "why is it like this" questions.
+- **A rule's text lives once, in `02-business-rules.md`.** Every other doc cites `BR-xxx` and does
+  not restate it. A new rule gets the next free id in its area; ids are never reused.
+- **No edit history in the prose** ("an older version said…"). Git has the history.
 - **Prose is part of the contract.** The paragraphs explaining *why* a decision was made are
   what stop the next person undoing it. Do not strip them to make a doc shorter.
 - **One concern per PR.** A schema change and an endpoint change in one PR cannot be reviewed

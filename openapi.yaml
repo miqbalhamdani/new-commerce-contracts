@@ -2,11 +2,11 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 1.4.0
+  version: 1.6.0
   description: |
     Phase 1 — Catalog & Foundation.
 
-    **This file is a skeleton.** It carries the conventions from `03-api-spec.md` §1 that every
+    **This file is a skeleton.** It carries the conventions from `04-api-spec.md` §1 that every
     endpoint depends on — authentication, the error envelope, money, pagination, optimistic
     concurrency, rate limiting — and no endpoints at all.
 
@@ -15,7 +15,7 @@ info:
     jobs, `P1-061` export. Adding them all up front would pre-empt design decisions those items
     are meant to make. `P1-011` added the three auth paths below.
 
-    That leaves this file **incomplete** relative to `03-api-spec.md` §2–§10, not in conflict with
+    That leaves this file **incomplete** relative to `04-api-spec.md` §2–§10, not in conflict with
     it. The rule in `CLAUDE.md` still holds for anything both files describe: change one, change
     the other, in the same commit.
 
@@ -136,10 +136,10 @@ paths:
       description: |
         Fixed and identical for every tenant. Phase 1 has no custom roles and no per-user
         overrides, so this is a constant -- it exists so a client can render a role picker and
-        explain what a role means without hardcoding the matrix from `03-api-spec.md` §3.
+        explain what a role means without hardcoding the matrix from `04-api-spec.md` §3.
 
         Requires `users:read`, because it is part of the team-management surface. An `ops` user
-        gets `403` naming that permission, which is `04-flows.md` §6's acceptance criterion.
+        gets `403` naming that permission (BR-024, `01-product.md` §5.5).
       responses:
         "200":
           description: The seeded roles.
@@ -341,16 +341,20 @@ components:
     ErrorCode:
       type: string
       description: |
-        The canonical error codes for this phase. The code also appears as the last segment of a
-        `Problem.type` URI, and directly in per-row results where an operation partially succeeds
-        — see `03-api-spec.md` §7.2.
+        The canonical error codes for this phase, listed with their status and rule in
+        `04-api-spec.md` §1.1. The code also appears as the last segment of a `Problem.type` URI,
+        and directly in per-row results where an operation partially succeeds (§7.3).
       enum:
         - validation_failed
-        - version_conflict
-        - duplicate_sku
+        - publish_check_failed
+        - unauthenticated
         - permission_denied
         - not_found
+        - version_conflict
+        - duplicate_sku
+        - category_in_use
         - rate_limited
+        - internal
 
     ProblemError:
       type: object
@@ -379,7 +383,7 @@ components:
         type:
           type: string
           format: uri
-          examples: ["https://docs.example.com/errors/version-conflict"]
+          examples: ["https://docs.example.com/errors/version_conflict"]
         title:
           type: string
           examples: ["Version conflict"]
@@ -438,8 +442,9 @@ components:
 
     Conflict:
       description: |
-        `version_conflict` when `If-Match` is stale, or `duplicate_sku` when a SKU is already
-        taken within the tenant.
+        `version_conflict` when `If-Match` is stale, `duplicate_sku` when a SKU is already taken
+        within the tenant, or `category_in_use` when deleting a category that has children or
+        products.
       content:
         application/problem+json:
           schema:
@@ -447,9 +452,11 @@ components:
 
     UnprocessableEntity:
       description: |
-        Validation failed. Also returned when a client sends a server-managed field on update, or
-        sends `null` where the field should simply have been omitted — those are not the same
-        thing.
+        Validation failed. Also returned when a client sends a server-managed field (on create or
+        update, BR-008), or sends `null` on create or on a non-nullable field (BR-009). Omitting a
+        field and sending `null` are not the same thing.
+
+        `publish_check_failed` is also a `422`, listing every reason a product can't go active.
       content:
         application/problem+json:
           schema:

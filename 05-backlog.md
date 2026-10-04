@@ -1,7 +1,10 @@
 # Phase 1 Backlog — Catalog & Foundation
 
 **Ordered.** Items are listed in the order they should be built. Dependencies flow downward;
-nothing depends on something below it.
+nothing depends on something below it. Ids record when an item was added, not its position: take
+the **top** `todo` item whose dependencies are `done`.
+
+Acceptance cites the rules it proves (`BR-xxx`, `02-business-rules.md`); the rule text lives there.
 
 **Status** `todo` · `wip` · `review` · `done` · `blocked` · `dropped`
 **Repo** `BE` backend · `FE` frontend · `CT` contracts · `OPS` infrastructure
@@ -33,19 +36,28 @@ only piece of it the backend genuinely needs is a reachable PostgreSQL 18, and `
 that from the developer's own machine — a connection string and a `make` target, no container.
 This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 
+**Host services rather than containers.** A dev machine that already runs PostgreSQL and Redis gains
+nothing from a second copy of each in Docker; the container only adds another runtime to keep
+alive. The cost is that the dev version is whatever the machine has, which is why the pin is
+PostgreSQL 18 and Redis 8 while there is still no box and no data to migrate. Matching dev to prod
+removes a whole kind of bug (an 18-only feature reaching a 16 server) that no amount of review
+reliably catches. Revisit the pin only when the box exists.
+
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
 | P1-000 | Local dev services: host PostgreSQL 18 + Redis 8 | OPS | — | `make dev` connects to host PostgreSQL 18 on `:5432` and Redis 8 on `:6379`; `GET /healthz` reports both | done | Iqbal Hamdani |
 | P1-005 | `openapi.yaml` skeleton + generators wired both repos | CT/BE/FE | 000 | `make generate` is a no-op on a clean tree in both repos | done | Iqbal Hamdani |
-| P1-006 | Migration runner, `app_user` non-owning role, RLS helper | BE | 000 | `app_user` owns nothing; `FORCE RLS` on every tenant table | done | Iqbal Hamdani |
-| P1-007 | `InTenantTx`, tenant context, fail-closed on missing tenant | BE | 006 | Missing tenant returns `ErrNoTenantContext`, never an empty result | done | Iqbal Hamdani |
-| P1-008 | **Tenant isolation test suite over every registered route** | BE | 007 | Two seeded tenants; A's token returns zero of B's rows on every route | done | Iqbal Hamdani |
-| P1-009 | RLS-policy guard | BE | 006 | `make lint-rls` exits non-zero on a `tenant_id` table with no policy | done | Iqbal Hamdani |
-| P1-010 | `tenants`, `users`, `refresh_tokens`, `api_keys` schema | BE | 006 | Matches `02-erd.md` §3.2 exactly | done | Iqbal Hamdani |
-| P1-011 | Auth: login, refresh rotation, logout, argon2id | BE | 010 | A reused refresh token revokes the whole chain | done | Iqbal Hamdani |
-| P1-012 | RBAC: 5 seeded roles, `resource:action` checks at handler boundary | BE | 011 | `403` names the required permission in `detail` | done | Iqbal Hamdani |
-| P1-013 | Error envelope (RFC 9457), `trace_id`, OpenTelemetry wiring | BE | 007 | Every error carries a `trace_id` resolvable to a span | done | Iqbal Hamdani |
-| P1-014 | App shell, routing, auth screens, session handling | FE | 005, 011 | Access token in memory, refresh in httpOnly cookie | done | Iqbal Hamdani |
+| P1-006 | Migration runner, `app_user` non-owning role, RLS helper | BE | 000 | `app_user` owns nothing; `FORCE RLS` on every tenant table (BR-001) | done | Iqbal Hamdani |
+| P1-007 | `InTenantTx`, tenant context, fail-closed on missing tenant | BE | 006 | Missing tenant returns `ErrNoTenantContext`, never an empty result (BR-002) | done | Iqbal Hamdani |
+| P1-008 | **Tenant isolation test suite over every registered route** | BE | 007 | Two seeded tenants; A's token returns zero of B's rows on every route (BR-001, BR-003) | done | Iqbal Hamdani |
+| P1-009 | RLS-policy guard | BE | 006 | `make lint-rls` exits non-zero on a `tenant_id` table with no policy (BR-001) | done | Iqbal Hamdani |
+| P1-010 | `tenants`, `users`, `refresh_tokens`, `api_keys` schema | BE | 006 | Matches `03-erd.md` §3.2 exactly | done | Iqbal Hamdani |
+| P1-011 | Auth: login, refresh rotation, logout, argon2id | BE | 010 | A reused refresh token revokes the whole chain (BR-020–022) | done | Iqbal Hamdani |
+| P1-012 | RBAC: 5 seeded roles, `resource:action` checks at handler boundary | BE | 011 | `403` names the required permission in `detail` (BR-023, BR-024) | done | Iqbal Hamdani |
+| P1-013 | Error envelope (RFC 9457), `trace_id`, OpenTelemetry wiring | BE | 007 | Every error carries a `trace_id` resolvable to a span (BR-011) | done | Iqbal Hamdani |
+| P1-014 | App shell, routing, auth screens, session handling | FE | 005, 011 | Access token in memory, refresh in httpOnly cookie (BR-022) | done | Iqbal Hamdani |
+| P1-015 | Rate limiting per user and per API key, `RateLimit-*` headers | BE | 012 | Over the limit is `429 rate_limited`; headers on every response (BR-014) | todo | |
+| P1-016 | Log field allow-list | BE | 013 | A field not on the allow-list is redacted in every log line (BR-013) | todo | |
 
 ---
 
@@ -53,19 +65,19 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-020 | `brands` schema + composite FK to tenant | BE | 010 | `products_same_tenant_as_brand` rejects a cross-tenant brand | todo | |
-| P1-021 | Brands CRUD API incl. `channel_brand_ids` | BE | 020 | Matches `03-api-spec.md` §5 | todo | |
-| P1-022 | `categories` schema, ltree, slugify, path triggers | BE | 010 | A move rebases every descendant in one statement | todo | |
-| P1-023 | Category cycle guard + sibling slug collision handling | BE | 022 | Moving a node under its own descendant raises | todo | |
-| P1-024 | Categories API, `kind` filter, depth-limited fetch | BE | 022 | `path` is rejected with `422` if a client sends it | todo | |
-| P1-025 | `products` schema incl. `attributes`, `option_names` | BE | 020 | Matches `02-erd.md` §3.3 | todo | |
-| P1-026 | `variants` schema, partial unique SKU index, composite FK | BE | 025 | Many null SKUs allowed; non-null unique per tenant | todo | |
-| P1-027 | `product_categories` join, multi-`kind` membership | BE | 022, 025 | One product in 3 trees of different kind simultaneously | todo | |
-| P1-028 | Products CRUD, `If-Match`, server-managed field rejection | BE | 025 | `null` fails validation; omitted takes the default | todo | |
-| P1-029 | Variants CRUD | BE | 026 | Duplicate SKU returns `409 duplicate_sku` | todo | |
-| P1-030 | Product list: search (trigram), filters, cursor pagination | BE | 028 | p95 < 600ms with 10k products | todo | |
-| P1-031 | Brand manager screen | FE | 021 | `04-flows.md` §2 acceptance | todo | |
-| P1-032 | Category manager: tree, drag-to-move, confirm dialog | FE | 024 | Dialog states that product assignments are unaffected | todo | |
+| P1-020 | `brands` schema + composite FK to tenant | BE | 010 | Matches `03-erd.md` §3.3; `products_same_tenant_as_brand` rejects a cross-tenant brand (BR-004) | todo | |
+| P1-021 | Brands CRUD API incl. `channel_brand_ids` | BE | 020 | Matches `04-api-spec.md` §5 (BR-010, BR-012, BR-030) | todo | |
+| P1-022 | `categories` schema, ltree, slugify, path triggers | BE | 010 | A move rebases every descendant in one statement (BR-032) | todo | |
+| P1-023 | Category cycle guard + sibling slug collision handling | BE | 022 | Moving a node under its own descendant raises (BR-034, BR-035) | todo | |
+| P1-024 | Categories API, `kind` filter, depth-limited fetch | BE | 022 | Matches `04-api-spec.md` §6; `path` sent → `422`; deleting a category in use → `409 category_in_use` with counts (BR-008, BR-036) | todo | |
+| P1-025 | `products` schema incl. `attributes`, `option_names` | BE | 020 | Matches `03-erd.md` §3.3 | todo | |
+| P1-026 | `variants` schema, partial unique SKU index, composite FK | BE | 025 | Many null SKUs allowed; non-null unique per tenant; one live variant per option combination (BR-039, BR-040) | todo | |
+| P1-027 | `product_categories` join, multi-`kind` membership | BE | 022, 025 | One product in 3 trees of different kind simultaneously; a cross-tenant link is rejected (BR-004, BR-031) | todo | |
+| P1-028 | Products CRUD, `If-Match`, server-managed field rejection | BE | 025 | Matches `04-api-spec.md` §7.1 (BR-008, BR-009, BR-010, BR-012) | todo | |
+| P1-029 | Variants CRUD | BE | 026 | Matches `04-api-spec.md` §7.2; duplicate SKU → `409 duplicate_sku` (BR-039) | todo | |
+| P1-030 | Product list: search (trigram), filters, cursor pagination | BE | 028 | p95 < 600ms with 10k products; `category_id` includes descendants | todo | |
+| P1-031 | Brand manager screen | FE | 021 | `01-product.md` §5.1 acceptance | todo | |
+| P1-032 | Category manager: tree, drag-to-move, confirm dialog | FE | 024 | `01-product.md` §5.3 acceptance (BR-033) | todo | |
 | P1-033 | Product list screen: search, filters, saved state | FE | 030 | Selection survives pagination and filtering | todo | |
 | P1-034 | Product editor: fields, brand select, category multi-select | FE | 028 | Unsaved-changes prompt on navigate away | todo | |
 
@@ -73,23 +85,23 @@ This is a deliberate reorder, not a convenient one — the reasoning is in `M4`.
 
 ## M2 · Variant matrix & media (weeks 8–10)
 
-The differentiating work of this phase. `04-flows.md` §3 is the acceptance reference.
+The differentiating work of this phase. `01-product.md` §5.2 is the acceptance reference.
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-040 | `PUT /variant-matrix`: server-side diff, one transaction | BE | 029 | Create + update + archive in one tx; per-row results | todo | |
-| P1-041 | Matrix partial failure semantics | BE | 040 | One duplicate SKU fails that row only; others still save | todo | |
-| P1-042 | `product_media` schema | BE | 025 | Stores R2 **keys**, never URLs | todo | |
-| P1-043 | `POST /media/presign` + `/media/confirm` with HEAD validation | BE | 042 | A key cannot be registered for an object never uploaded | todo | |
-| P1-044 | Worker: image derivatives 1600/800/200 WebP via libvips | BE | 043 | Derivative ready < 15s p95 | todo | |
-| P1-045 | R2 bucket, tenant prefixes, presigned GET policy | OPS | 042 | Product images 1h; exports 15m | todo | |
-| P1-046 | **Variant matrix editor**: grid, paste from Excel, fill-down | FE | 040 | 2×5 grid renders 10 cells, saves in one request < 2s | todo | |
+| P1-040 | `PUT /variant-matrix`: server-side diff, one transaction | BE | 029 | Matches `04-api-spec.md` §7.3: create + update + restore + archive; per-row results (BR-040, BR-041) | todo | |
+| P1-041 | Matrix partial failure semantics | BE | 040 | One duplicate SKU fails that row only; others still save (BR-041) | todo | |
+| P1-042 | `product_media` schema | BE | 025 | Matches `03-erd.md` §3.3 (BR-004, BR-050) | todo | |
+| P1-043 | Media API: presign, confirm with HEAD validation, assign, reorder, delete | BE | 042 | Matches `04-api-spec.md` §8; a key cannot be registered for an object never uploaded (BR-051) | todo | |
+| P1-044 | Worker: image derivatives 1600/800/200 WebP via libvips | BE | 043 | Derivative ready < 15s p95 (BR-052) | todo | |
+| P1-045 | R2 bucket, tenant prefixes, presigned GET policy | OPS | 042 | Product images 1h; exports 15m (BR-053) | todo | |
+| P1-046 | **Variant matrix editor**: grid, paste from Excel, fill-down | FE | 040 | 2×5 grid renders 10 cells, saves in one request < 2s (BR-041) | todo | |
 | P1-047 | Matrix bulk price adjust (± amount / %) | FE | 046 | Preview before apply | todo | |
-| P1-048 | Media library: drag-drop, direct-to-R2 upload, reorder | FE | 043 | 5MB image shows progress and never blocks the form | todo | |
-| P1-049 | Publish check on `draft → active` | BE/FE | 040, 043 | Every variant has SKU + price; ≥1 image; ≥1 category | todo | |
+| P1-048 | Media library: drag-drop, direct-to-R2 upload, reorder, assign to variant | FE | 043 | 5MB image shows progress and never blocks the form (BR-051, BR-052) | todo | |
+| P1-049 | Publish check on `draft → active` | BE/FE | 040, 043 | `422 publish_check_failed` lists every failure; the editor links each to its cell (BR-038) | todo | |
 
 > **P1-049 is where the nullable SKU is enforced.** It is a publish-path check, not a table
-> constraint — drafting must stay frictionless. See `02-erd.md` §4.1.
+> constraint — drafting must stay frictionless. See BR-038 and `03-erd.md` §4.1.
 
 ---
 
@@ -97,16 +109,17 @@ The differentiating work of this phase. `04-flows.md` §3 is the acceptance refe
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-060 | Async job runner + `GET /v1/jobs/{id}` | BE | 007 | Reused unchanged by every later phase | todo | |
-| P1-061 | Catalog export: templates for 5 marketplaces + generic | BE | 060, 030 | 10k variants < 60s | todo | |
-| P1-062 | Export reports incomplete channel mapping, grouped | BE | 061 | Generates anyway; names what is missing | todo | |
-| P1-063 | Export screen: template picker, filters, download | FE | 061 | Link expires in 15m and can be regenerated | todo | |
-| P1-064 | Users: invite, role assign, disable | BE | 012 | Disable signs out within 15 min at worst | todo | |
-| P1-065 | API keys: issue, prefix display, revoke | BE | 012 | Secret shown exactly once | todo | |
-| P1-066 | Team & roles screen | FE | 064 | `ops` sees no user-management nav at all | todo | |
-| P1-067 | API keys screen | FE | 065 | Copy-once UI with an explicit warning | todo | |
-| P1-068 | Onboarding wizard incl. `channel_brand_ids` capture | FE | 021, 024 | Skippable and resumable at every step | todo | |
-| P1-069 | Empty states carrying the "no stock yet" message | FE | 033 | Present on product list and product editor | todo | |
+| P1-060 | Async job runner + `GET /v1/jobs/{id}` | BE | 007 | Matches `04-api-spec.md` §9; reused unchanged by every later phase (BR-060) | todo | |
+| P1-061 | Catalog export: templates for 5 marketplaces + generic | BE | 060, 030 | 10k variants < 60s; opens cleanly in Excel with Indonesian locale (BR-061, BR-064) | todo | |
+| P1-062 | Export reports incomplete channel mapping, grouped | BE | 061 | Generates anyway; names what is missing (BR-062) | todo | |
+| P1-063 | Export screen: template picker, filters, download | FE | 061 | Link expires in 15m and can be regenerated (BR-063) | todo | |
+| P1-064 | Users: invite, resend, role assign, disable | BE | 012 | Matches `04-api-spec.md` §4 (BR-026, BR-027) | todo | |
+| P1-065 | API keys: issue, prefix display, revoke | BE | 012 | Secret shown exactly once; permissions limited to the creator's (BR-028) | todo | |
+| P1-066 | Team & roles screen | FE | 064 | `ops` sees no user-management nav at all (BR-025) | todo | |
+| P1-067 | API keys screen | FE | 065 | Copy-once UI with an explicit warning (BR-028) | todo | |
+| P1-071 | Settings API: `GET`/`PATCH /v1/settings` | BE | 012 | Matches `04-api-spec.md` §4; only `owner` can `PATCH` (BR-023, BR-029) | todo | |
+| P1-068 | Onboarding wizard incl. `channel_brand_ids` capture | FE | 021, 024, 071 | `01-product.md` §5.1 acceptance (BR-029, BR-030) | todo | |
+| P1-069 | Empty states carrying the "no stock yet" message | FE | 033 | Present on product list and product editor (BR-015) | todo | |
 
 ---
 
@@ -127,8 +140,10 @@ that must not happen on storage nobody has ever restored from.
 | P1-004 | CI: lint, test, migration-on-snapshot, contracts drift check | BE/FE | 001 | A PR that breaks any of the four is red | todo | |
 | P1-070 | Pilot merchant onboarding: real catalog loaded | OPS | all | One merchant's real catalog is in the system | todo | |
 
-> **P1-003 gates the pilot.** `P1-070` does not start until the restore drill has passed.
-> Everything from that point on assumes merchant data is recoverable.
+> **P1-003 gates the pilot.** `P1-070` does not start until the restore drill has passed, and
+> neither does Phase 2. Everything from that point on assumes merchant data is recoverable.
+> Provisioning late leaves less time between the box existing and the pilot relying on it, so treat
+> week 10 as a hard start for `P1-001`, not a target.
 
 > **`P1-001` needs a decision before it can start:** the production domain. Every document still
 > says `{domain}`. Caddy's default ACME challenge also cannot reach the box through Cloudflare's
