@@ -1,6 +1,6 @@
 # Ecommerce Backoffice v2 · Data Model
 
-**21 tables, 2 views.** Constraints are tagged with the rule they enforce (`BR-xxx`, see
+**23 tables, 2 views.** Constraints are tagged with the rule they enforce (`BR-xxx`, see
 `02-business-rules.md`). The API contract is `04-api-spec.md`; which backlog item builds which
 table is `05-backlog.md`. Migrations in `new-commerce-api/db/migrations/` must match this file;
 if they disagree, the migration is the bug.
@@ -32,6 +32,8 @@ erDiagram
   CARTS ||--o{ CART_ITEMS : contains
   CARTS ||--o| ORDERS : "checked out as"
   ORDERS ||--|{ ORDER_LINES : contains
+  ORDERS ||--o{ PAYMENTS : "paid through"
+  TENANTS ||--o| STOREFRONT_SETTINGS : configures
 ```
 
 `product_categories` is the join table behind the many-to-many, and it is what lets one product sit
@@ -43,8 +45,8 @@ in several trees of different `kind` at once (BR-031). Not drawn: `jobs`, `order
 | Platform | `tenants`, `users`, `refresh_tokens`, `api_keys`, `audit_log`, `jobs` | M5 |
 | Catalog | `brands`, `categories`, `products`, `variants`, `product_categories`, `product_media` | M2 |
 | Marketplace import | `channels`, `channel_listings` | M4 |
-| Storefront | `customers`, `customer_sessions`, `carts`, `cart_items` | M3 |
-| Orders | `orders`, `order_lines`, `order_sequences` | M1 |
+| Storefront | `storefront_settings`, `customers`, `customer_sessions`, `carts`, `cart_items` | M3 |
+| Orders | `orders`, `order_lines`, `order_sequences`, `payments` | M1 |
 | Views | `storefront_products`, `storefront_variants` | M3 |
 
 ---
@@ -414,20 +416,56 @@ CREATE INDEX ON channel_listings (tenant_id, variant_id);
 ### 3.5 Storefront: customers and carts (M3)
 
 ```sql
+-- One row per tenant: how its storefront sells. Created with the tenant.
+CREATE TABLE storefront_settings (
+    tenant_id              uuid PRIMARY KEY REFERENCES tenants(id),
+    contact_email          text,                  -- Reply-To on every email (BR-128)
+    -- BR-127. The shop's own Google OAuth client; NULL = Google sign-in off.
+    google_client_id       text,
+    -- BR-120. Biteship origin and the couriers offered. The API key is platform config.
+    origin_postal_code     text CHECK (origin_postal_code ~ '^[0-9]{5}$'),
+    shipping_couriers      text[] NOT NULL DEFAULT '{}',   -- Biteship codes: jne, jnt, sicepat, …
+    -- BR-122. Payment methods offered at checkout.
+    bank_transfer_enabled  boolean NOT NULL DEFAULT true,
+    bank_transfer_instructions text,              -- shown by the website after checkout
+    midtrans_enabled       boolean NOT NULL DEFAULT false,
+    midtrans_environment   text CHECK (midtrans_environment IN ('sandbox','production')),
+    midtrans_client_key    text,                  -- public by design (Snap.js)
+    midtrans_server_key    bytea,                 -- envelope-encrypted, never returned (BR-129)
+    -- Opaque id in the notification URL; how a webhook finds its tenant (BR-003).
+    midtrans_webhook_id    uuid NOT NULL UNIQUE,
+    updated_at             timestamptz NOT NULL DEFAULT now(),
+    CHECK (NOT midtrans_enabled OR (midtrans_environment IS NOT NULL
+           AND midtrans_client_key IS NOT NULL AND midtrans_server_key IS NOT NULL)),
+    CHECK (bank_transfer_enabled OR midtrans_enabled)
+);
+
+-- BR-003. The one pre-tenant query on the Midtrans webhook path. The caller
+-- trusts tenant_id only after the signature verifies with this key (BR-124).
+CREATE FUNCTION resolve_midtrans_webhook(p_webhook_id uuid)
+RETURNS TABLE (tenant_id uuid, midtrans_environment text, midtrans_server_key bytea)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT tenant_id, midtrans_environment, midtrans_server_key
+    FROM storefront_settings WHERE midtrans_webhook_id = p_webhook_id AND midtrans_enabled;
+$$;
+
 -- A shopper on one tenant's website. The same email at two shops is two
 -- unrelated customers (BR-092).
 CREATE TABLE customers (
     id                uuid PRIMARY KEY,
     tenant_id         uuid NOT NULL REFERENCES tenants(id),
     email             text NOT NULL,
-    password_hash     text NOT NULL,        -- argon2id, staff parameters (BR-022)
+    password_hash     text,                 -- argon2id (BR-022); NULL for a Google-only customer
+    google_sub        text,                 -- Google subject id, once linked (BR-127)
     name              text NOT NULL,
     phone             text,
     email_verified_at timestamptz,
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, email),
-    CHECK (email = lower(email))
+    UNIQUE (tenant_id, google_sub),
+    CHECK (email = lower(email)),
+    CHECK (password_hash IS NOT NULL OR google_sub IS NOT NULL)
 );
 ALTER TABLE customers ADD CONSTRAINT customers_id_tenant_uq UNIQUE (id, tenant_id);
 
@@ -511,9 +549,16 @@ CREATE TABLE orders (
     shipping_amount  bigint NOT NULL DEFAULT 0,
     discount_amount  bigint NOT NULL DEFAULT 0,
     total_amount     bigint NOT NULL DEFAULT 0,
-    currency         char(3) NOT NULL DEFAULT 'IDR',
+    currency         char(3) NOT NULL DEFAULT 'IDR' CHECK (currency = 'IDR'),   -- BR-029
+    payment_method   text NOT NULL DEFAULT 'bank_transfer'
+                     CHECK (payment_method IN ('bank_transfer','midtrans')),     -- BR-122
+    -- BR-121. What the shopper chose at checkout (Biteship codes); NULL for a
+    -- manual order with a typed shipping amount.
+    shipping_courier text,
+    shipping_service text,
     -- BR-072. Shipping is recorded, not booked. There is no shipments table.
-    courier          text CHECK (courier IN ('jne','jnt','sicepat','anteraja','pos','other')),
+    -- Defaults to shipping_courier when shipped; ops may change it.
+    courier          text CHECK (courier ~ '^[a-z0-9_]+$'),
     tracking_number  text,
     placed_at        timestamptz NOT NULL,
     paid_at          timestamptz,
@@ -562,6 +607,33 @@ CREATE TABLE order_lines (
 );
 CREATE INDEX ON order_lines (tenant_id, order_id);
 CREATE INDEX ON order_lines (tenant_id, variant_id);
+
+-- BR-123. One row per Midtrans Snap transaction. Bank transfers have no row.
+CREATE TABLE payments (
+    id                uuid PRIMARY KEY,
+    tenant_id         uuid NOT NULL REFERENCES tenants(id),
+    order_id          uuid NOT NULL,
+    provider          text NOT NULL DEFAULT 'midtrans' CHECK (provider = 'midtrans'),
+    provider_order_id text NOT NULL,          -- 'ERG-000123', then 'ERG-000123-2', …
+    attempt           integer NOT NULL CHECK (attempt >= 1),
+    status            text NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending','paid','failed','amount_mismatch')),
+    gross_amount      bigint NOT NULL,        -- always the order's total_amount
+    snap_token        text,
+    redirect_url      text,
+    expires_at        timestamptz NOT NULL,
+    transaction_status text,                  -- last status confirmed by the Get Status API
+    last_notification jsonb,                  -- the last verified notification body
+    paid_at           timestamptz,
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    updated_at        timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (tenant_id, provider_order_id),
+    UNIQUE (order_id, attempt),
+    CONSTRAINT payments_same_tenant_as_order
+        FOREIGN KEY (order_id, tenant_id) REFERENCES orders (id, tenant_id) ON DELETE CASCADE
+);
+-- BR-123: at most one live attempt per order.
+CREATE UNIQUE INDEX payments_one_pending_per_order ON payments (order_id) WHERE status = 'pending';
 ```
 
 `ON DELETE CASCADE` from `orders` to `order_lines` exists for the PII purge and tenant deletion
@@ -715,10 +787,12 @@ variant of a product contend on one row, and erase the difference between on-han
 | Change | Tables |
 |---|---|
 | Removed | `stock_locations`, `stock_ledger_entries`, `stock_balances`, `channel_events`, `reservations`, `fulfillments`, `fulfillment_lines`, `shipments`, `returns`, `return_lines`, `idempotency_keys`, `outbound_webhooks` (all from the v1.0 spec, never built) |
-| Added | `customers`, `customer_sessions`, `carts`, `cart_items`, `orders`, `order_lines`, `order_sequences`, `channels`, `channel_listings`, `audit_log`, `jobs` |
+| Added | `customers`, `customer_sessions`, `carts`, `cart_items`, `orders`, `order_lines`, `order_sequences`, `channels`, `channel_listings`, `audit_log`, `jobs`, and in v2.1 `storefront_settings`, `payments` |
 | `users.role` | `warehouse` removed from the CHECK (BR-023). Migration: P1-017 |
 | `api_keys` | `permissions` dropped; `kind`, `allowed_origins` added; `key_prefix` renamed `prefix` (BR-028). Migration: P1-019 |
 | `brands` | `channel_brand_ids` dropped (marketplace CSV export retired, BR-061) |
 | `products` | `slug` added (BR-042) |
 | `tenants` | `order_prefix` added (BR-077) |
 | `product_media` | `source_url` added (BR-106) |
+| `customers` (v2.1) | `password_hash` nullable, `google_sub` added (BR-127) |
+| `orders` (v2.1) | `payment_method`, `shipping_courier`, `shipping_service` added; `courier` takes any Biteship code; `currency` fixed to IDR (BR-029, BR-121, BR-122) |

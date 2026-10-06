@@ -75,8 +75,10 @@ Tell pilot owners this before onboarding. They will ask in week one; have the an
 | "Where do I set stock?" | There is none. Archive a variant you no longer have. |
 | "Can it sync my Shopee orders?" | No. Orders come from your website or are entered by hand. Products can be imported from Shopee and Tokopedia. |
 | "Will a price change on Shopee update here?" | No. After the first import the backoffice owns your data (BR-104). |
+| "Does checkout charge shipping?" | Yes: live Biteship rates from your origin, for the couriers you pick (BR-120). |
 | "Can it book the courier?" | No. Book it as you do today and enter the tracking number. |
-| "Can customers pay online?" | Not yet: bank transfer, confirmed by you (BR-074). See §9. |
+| "Can customers pay online?" | Yes, through your own Midtrans account, or by bank transfer you confirm (BR-074). |
+| "Can I sell in another currency?" | No. IDR only (BR-029). |
 
 ### 2.3 Hard requirements that shape the design
 
@@ -133,6 +135,7 @@ appear (BR-025).
 | Channels | Owner/Admin | Connect, import, result, linked listings | M4 |
 | Team & roles | Owner/Admin | Invite, assign roles, disable | M5 |
 | Settings | Owner | Shop name, time zone, order prefix | M5 |
+| Storefront settings | Owner | Contact email, Google client ID, shipping origin and couriers, payment methods and Midtrans keys | M3 |
 | Audit log | Owner/Admin | Who changed what | M5 |
 
 ---
@@ -164,6 +167,9 @@ flowchart LR
   end
   UI["Next.js admin"]
   CDN["Image domain<br/>edge-cached"]
+  MT["Midtrans<br/>owner's account"]
+  BS["Biteship<br/>rates"]
+  RS["Resend<br/>email"]
 
   WEB -->|"HTTPS + API key"| SF
   WEB -->|"product images"| CDN
@@ -176,6 +182,10 @@ flowchart LR
   IMP -->|"list + get items"| MP
   IMP -->|"products, variants, links"| PG
   IMP -->|"copy images"| R2
+  SF -->|"quote shipping"| BS
+  SF -->|"create Snap payment"| MT
+  MT -->|"payment notification"| SF
+  WRK -->|"send email"| RS
 ```
 
 Three things to notice, because they are the design:
@@ -183,8 +193,10 @@ Three things to notice, because they are the design:
 1. **Two route trees, one binary, one database.** Separate middleware chains, but every query runs
    through `InTenantTx`, so RLS protects storefront reads exactly as it protects admin ones. A
    storefront request's tenant comes from its API key, never from the request (BR-003).
-2. **Marketplace traffic is outbound only.** No public webhook endpoint, nothing that can be lost
-   while the API is down. A failed import is simply run again (BR-100).
+2. **One inbound webhook, nothing else.** Marketplace traffic is outbound only; a failed import is
+   simply run again (BR-100). The only thing that calls us is Midtrans, and every notification is
+   signature-checked and re-confirmed with Midtrans before it counts (BR-124). If one is lost,
+   Midtrans retries, and ops can still mark the order paid.
 3. **Images are public; nothing else is.** Product images are served from an edge-cached image
    domain, so the owner's website renders them without a key (BR-053).
 
@@ -197,6 +209,9 @@ Three things to notice, because they are the design:
 | Object storage | Cloudflare R2 | Zero egress makes public product images on owners' websites cheap |
 | Frontend | Next.js 15 App Router | The admin only. The storefront is the owner's own website |
 | Observability | OpenTelemetry | Trace checkout and each import job end to end |
+| Payments | Midtrans Snap, the owner's own account | Money goes straight to the owner; the platform never holds funds |
+| Shipping rates | Biteship rates API, one platform key | About Rp5 a quote; owners set only origin and couriers |
+| Email | Resend | Free plan: 3,000 a month, 100 a day. A shop at 2–5 orders a day sends ~10–15 emails a day, so the free plan covers about 7–10 shops; Pro ($20/month, 50,000, no daily cap) covers about 100 |
 
 **Deployment: one VPS** (start at 4 vCPU / 8 GB / NVMe, Docker Compose): Caddy, Next.js,
 `cmd/api` ×2 (so a deploy drains one at a time and never drops a checkout), `cmd/worker` ×1,
@@ -226,6 +241,7 @@ processing), **Shipped**, **Cancelled, refund owed** (BR-075).
   order history.
 - As ops I see every cancelled order that was paid but not yet refunded, and record the refund.
 - As a bookkeeper I export last month's completed orders to CSV.
+- As ops I see that a Midtrans order paid itself, and I only confirm bank transfers by hand.
 
 **Acceptance.**
 - Two concurrent checkouts of the same cart produce exactly one order, and both requests receive
@@ -235,6 +251,9 @@ processing), **Shipped**, **Cancelled, refund owed** (BR-075).
 - Moving an order to `shipped` without courier and tracking number is `422`, and the database
   refuses it even if the handler check is bypassed (BR-072).
 - Every status change writes exactly one `audit_log` row with actor, from and to (BR-073).
+- A Midtrans `settlement` notification marks the order paid exactly once, however many times it
+  arrives; a notification with a bad signature, or whose amount differs from the order total,
+  never marks it paid (BR-124, BR-125).
 - A transition not in the allow-list returns `409 illegal_transition` and changes nothing (BR-070).
 - Order list first byte under 800 ms at p95 with 10,000 orders in the tenant.
 
@@ -265,8 +284,8 @@ adjustment by percentage or amount across a selection, with a preview before it 
 
 ### 6.3 M3 — Storefront API
 
-Admin screens: API keys (create, name, allowed origins, revoke; the key is shown once) and a link
-to the public storefront docs.
+Admin screens: API keys (create, name, allowed origins, revoke; the key is shown once), storefront
+settings (Google sign-in, shipping, payment methods), and a link to the public storefront docs.
 
 **Stories.**
 - As an owner I create a publishable key for `https://tokoabc.com` and give it to my website
@@ -275,7 +294,11 @@ to the public storefront docs.
   docs alone.
 - As a shopper I add items to a cart, check out as a guest, and later open my order with the link I
   was given.
-- As a shopper I create an account and see all my past orders on the shop's website.
+- As a shopper I create an account, or sign in with Google, and see all my past orders on the
+  shop's website.
+- As a shopper I enter my postal code, pick JNE or SiCepat at the price shown, and pay with
+  Midtrans or by bank transfer.
+- As an owner I paste my Midtrans keys, choose my couriers, and add my Google client ID.
 
 **Acceptance.**
 - With customer A's token, no storefront route returns any of customer B's data. Asserted by an
@@ -291,6 +314,11 @@ to the public storefront docs.
 - An order token for one order never opens another (BR-091).
 - Reusing an already-rotated refresh token revokes that customer session (BR-093).
 - Storefront responses contain no field outside the storefront views (BR-081).
+- A checkout request with a shipping price is `422`; the charged shipping equals the server's
+  Biteship quote (BR-089, BR-121).
+- A Google ID token issued for another client ID, or with an unverified email, is rejected
+  (BR-127).
+- The Midtrans server key never appears in any response or log line (BR-013, BR-129).
 
 ### 6.4 M4 — Marketplace product import
 
@@ -338,11 +366,15 @@ active) · import result with downloadable error report · linked listings view.
 1. The website, holding a publishable key, lists products and opens `erigo-basic-tee`.
 2. "Add to cart" creates a cart (the website stores `cart_id` in its own cookie) and sets the
    variant's quantity.
-3. Checkout sends contact and address, no prices. The order comes back `pending` with an
-   `order_token`; the website shows bank transfer instructions and a "track my order" link.
-4. Ops sees it under **To confirm payment**, checks the transfer, marks it paid; later ships it
-   with JNE and a tracking number.
-5. The shopper opens the tracking link and sees `shipped`, the courier and the tracking number.
+3. The shopper enters postal code 40115; the website shows Biteship options and the shopper picks
+   JNE Reguler.
+4. Checkout sends contact, address, the courier choice and `midtrans`, no prices. The order comes
+   back `pending` with a Snap link and an `order_token`; an "order placed" email goes out.
+5. The shopper pays in the Snap popup. Midtrans notifies the API, the order becomes `paid`, and a
+   "payment received" email goes out. (Paying by bank transfer instead, the order waits under
+   **To confirm payment** until ops marks it paid.)
+6. Ops ships it with JNE and a tracking number; the "shipped" email carries both, and the
+   tracking link shows them too.
 
 ### 7.2 First marketplace import
 
@@ -385,13 +417,16 @@ pre-optimise.
 - Degraded modes, designed rather than emergent: **Redis down** → admin and storefront keep
   working, rate limits fall back to per-process, imports and image processing pause.
   **Marketplace down** → that import fails and can be re-run. **R2 down** → images fail to load;
-  catalog, carts and orders are unaffected.
+  catalog, carts and orders are unaffected. **Biteship down** → shipping quotes fail and checkout
+  cannot complete (`502`); browsing and carts work. **Midtrans down** → checkout still creates the
+  order and the shopper pays later through "pay now" or by bank transfer. **Resend down** → emails
+  are delayed, nothing else.
 
 ### 8.4 Security
 
 - TLS 1.3 only, HSTS, Cloudflare WAF in front of everything.
-- Channel credentials envelope-encrypted, decrypted only in the worker, never logged (BR-101). The
-  guest order-token key lives in the same KMS (BR-091).
+- Channel credentials and Midtrans server keys are envelope-encrypted and never logged (BR-101,
+  BR-129). The guest order-token key lives in the same KMS (BR-091).
 - Passwords `argon2id`, 64 MB, 3 iterations, staff and customers alike (BR-022, BR-092).
 - API keys stored as SHA-256 hashes, plaintext shown once (BR-028).
 - Staff and customer tokens are separate audiences; neither works on the other's routes (BR-086).
@@ -407,7 +442,10 @@ Trace storefront request → checkout → order insert as one trace, and each im
 with a span per batch. Alert on: storefront 5xx rate > 1% · checkout p95 > 2 s · a spike in
 `origin_not_allowed` (usually an allowlist not updated after a domain change) · any
 `secret_key_in_browser` · a spike in failed customer logins per tenant (credential stuffing) · any
-channel in `reauth_required` for more than 24 hours · any failed import job.
+channel in `reauth_required` for more than 24 hours · any failed import job · any Midtrans
+notification with a bad signature or an amount mismatch · Biteship error rate > 5% · more than 80 emails in a day while on Resend's
+free plan (its cap is 100) · bounce rate > 2% or complaint rate > 0.1% (providers suspend senders
+above their limits).
 
 ### 8.6 Testing
 
@@ -424,18 +462,20 @@ channel in `reauth_required` for more than 24 hours · any failed import job.
 
 ---
 
-## 9. Open questions
+## 9. Decisions
 
-| Question | Decide before | Why it matters |
+The questions open at v2.0, and how they were closed (6 October 2026).
+
+| Question | Decision | Where |
 |---|---|---|
-| **Payment.** Manual bank transfer is assumed. A gateway (Midtrans, Xendit) would call the same Transition (BR-074). | Phase 3 | Checkout could return a payment link from day one |
-| **Shipping cost at checkout.** Stored, but no source yet: free, flat per shop, or live rates (Biteship). | Phase 3 | Decides whether checkout shows a total before it has the address |
-| **Transactional email provider.** Password reset needs it; order confirmations probably should. | Phase 3 | Blocks `P1-207` |
-| **Customer sign-in method.** Email and password specified; WhatsApp OTP may convert better but needs a paid provider. | Phase 3 | Changes `P1-206` |
-| **Shopee partner approval.** Lead time outside our control. | Apply in Phase 0 | Blocks Phase 4 |
-| **Tokopedia API access.** Since the 2024 merger its seller API is moving under TikTok Shop's Partner Center. | Before scheduling Phase 5 | If not available by week 20, ship without it and keep the adapter slot open |
-| **Multi-currency.** IDR-only with the scale kept uniform. Confirm no cross-border sellers in the pilot cohort. | Pilot | BR-029 |
-| **Production domain.** Every document still says `{domain}`. | `P1-001` | TLS mode behind Cloudflare is part of that item |
+| **Payment** | Bank transfer confirmed by ops, or **Midtrans Snap** on the owner's own Midtrans account. The shop chooses which to offer. | BR-074, BR-122–126 |
+| **Shipping cost at checkout** | **Biteship** rates, one platform key, re-quoted on the server at checkout. Booking stays out of scope. | BR-120, BR-121 |
+| **Transactional email** | **Resend**, on its free plan (3,000 a month, 100 a day) until about 7–10 shops, then Pro at $20/month. Amazon SES ($0.10 per 1,000) is the cheapest at scale; switching only touches the email sender (`P1-226`). | BR-128 |
+| **Customer sign-in** | **Email + password, and Google** with the shop's own client ID. No WhatsApp, no OTP. | BR-092, BR-127 |
+| **Currency** | **IDR only.** No multi-currency, no cross-border sellers. | BR-029 |
+| **Production domain** | Stays `{domain}` in every document until `P1-001`. | `05-backlog.md` |
+| **Shopee partner approval** | **Parked.** Unpark before Phase 4. | `P1-080` |
+| **Tokopedia API access** | **Parked.** Phase 5 stays conditional on it. | `P1-080`, Phase 5 |
 
 ---
 
@@ -446,7 +486,9 @@ Written in `new-commerce-api/docs/adr/` before Phase 0 ends; each will be questi
 Shared-schema tenancy with RLS, not schema-per-tenant · modular monolith, not microservices · no
 stock tracking: visible means orderable · admin and storefront as two route trees in one binary ·
 publishable and secret keys with an origin allowlist; personal data only behind customer or order
-tokens · storefront reads through `security_invoker` views · checkout idempotency from the cart,
+tokens · storefront reads through `security_invoker` views · Midtrans on each owner's account,
+trusted only after signature and status checks · Biteship rates on one platform key, re-quoted at
+checkout · Resend for email · checkout idempotency from the cart,
 not an `Idempotency-Key` header · stateless HMAC guest order tokens · pull-only marketplace
 import; the backoffice owns product data after the first import · Redis Streams for jobs, not
 PostgreSQL-as-queue · Cloudflare R2 with a public, edge-cached image domain · `sqlc` over an ORM ·

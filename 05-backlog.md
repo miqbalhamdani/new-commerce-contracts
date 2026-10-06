@@ -59,7 +59,6 @@ exists in 18 can never reach a 16 server (`P1-002`). Revisit only once the machi
 | P1-017 | Four roles: drop `warehouse`, v2 permission matrix | BE/FE | 012 | Migration removes `warehouse` from the `users.role` CHECK and fails loudly if any user holds it; seeded permissions equal §3; `GET /v1/roles` returns four; generated clients pick up the enum from contracts `v2.0.0` (BR-023) | todo | |
 | P1-018 | `audit_log` table and recorder | BE | 007 | As `03-erd.md` §3.2. Every mutating admin route writes exactly one row in the same transaction, none if it rolls back; asserted over every registered mutating route (BR-018) | todo | |
 | P1-019 | `api_keys` v2 shape and `resolve_api_key` | BE | 010 | As `03-erd.md` §3.2: `kind`, `prefix`, `allowed_origins` and the CHECK added, `permissions` dropped; `resolve_api_key` is `SECURITY DEFINER` and returns only its five columns (BR-003, BR-028) | todo | |
-| P1-080 | Apply for Shopee and Tokopedia partner API access | OPS | — | Both applications submitted; dates and status noted under this table. A human task: `/next` reports it and stops | todo | |
 
 ---
 
@@ -93,7 +92,7 @@ needs them.
 | P1-043 | Media API: presign, confirm with `HEAD` check, attach, reorder, delete | BE | 042 | As §8; a key never uploaded → `422`; keys carry the content hash (BR-051, BR-053) | todo | |
 | P1-044 | Worker: WebP derivatives 1600/800/200 via libvips | BE | 043, 060 | Derivatives ready in < 15 s p95; uploading never blocks the form (BR-052) | todo | |
 | P1-045 | R2 bucket, tenant prefixes, lifecycle rules, image domain Worker | OPS | 042 | Product images served public and edge-cached from the image domain (a dev domain until `P1-001`); `errors.csv` deleted after 30 days, exports after 7 (BR-053) | todo | |
-| P1-049 | Publish check on `draft → active` | BE | 040, 043 | `422 publish_check_failed` lists every failure with its variant id (BR-038) | todo | |
+| P1-049 | Publish check on `draft → active` | BE | 040, 043 | `422 publish_check_failed` lists every failure, including zero weight, with its variant id (BR-038) | todo | |
 | P1-072 | `POST /v1/products/bulk` | BE | 029, 049 | As §7.5: up to 500 rows, per-row results by index, one bad row rolls back nothing (BR-043) | todo | |
 | P1-073 | CSV import job: server-side parse, column mapping, `errors.csv` | BE | 060, 072 | 10,000 variants in < 5 min; `,` and `;` delimiters and BOM handled; every error cites its original line number (BR-044) | todo | |
 | P1-031 | Brand manager screen | FE | 021 | `01-product-requirements.md` §4 | todo | |
@@ -111,7 +110,9 @@ needs them.
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-064 | Users: invite, accept, resend, set role, disable | BE | 017, 018 | As §2 and §4 (BR-026, BR-027) | todo | |
+| P1-225 | Resend: account, sending domain, DKIM/SPF/DMARC | OPS | — | A test email from `no-reply@{domain}` reaches an outside inbox and passes DKIM. Until the domain exists (`P1-001`), Resend's test sender (`onboarding@resend.dev`, which only delivers to the account owner's address) is enough to build against (BR-128) | todo | |
+| P1-226 | Email sender in the worker + invitation template | BE | 225, 060 | Emails go through Resend from `"{shop name}" <no-reply@{domain}>` with Reply-To; sent after commit; a rolled-back change sends nothing (BR-128) | todo | |
+| P1-064 | Users: invite, accept, resend, set role, disable | BE | 017, 018, 226 | As §2 and §4; the invitation email arrives (BR-026, BR-027) | todo | |
 | P1-071 | Settings API: `GET`/`PATCH /v1/settings` | BE | 017 | As §4; only `owner` can `PATCH` (BR-023, BR-029) | todo | |
 | P1-077 | Audit log API: `GET /v1/audit-log` | BE | 018 | As §4; newest first, filterable by subject and actor (BR-018) | todo | |
 | P1-066 | Team & roles screen | FE | 064 | `ops` sees no user-management navigation at all (BR-025) | todo | |
@@ -150,7 +151,8 @@ to work an order the day the first one arrives.
 
 M3: API keys and origin allowlist, storefront views, catalog routes, carts, checkout, customer
 accounts, order history, guest lookup, public docs. The open questions on payment, shipping cost,
-email provider and customer sign-in (`01-product-requirements.md` §9) are due before this phase.
+email provider and customer sign-in are decided (`01-product-requirements.md` §9): Midtrans or
+bank transfer, Biteship rates, Resend, email + password and Google.
 
 **Exit:** the customer isolation suite is green; 20 parallel checkouts of one cart create one
 order; a minimal reference website built from the public docs alone goes product → cart → checkout
@@ -163,17 +165,29 @@ order; a minimal reference website built from the public docs alone goes product
 | P1-202 | Storefront route tree + key middleware | BE | 019, 015 | As §11.2: `invalid_api_key`, `origin_not_allowed` without ACAO, `secret_key_in_browser`, preflight for any origin; revoked key dead within 60 s; storefront and admin packages do not import each other (BR-003, BR-083, BR-084, BR-085) | todo | |
 | P1-203 | Storefront views + catalog routes | BE | 202, 030, 044 | As §11.4; handlers query only the views; draft and archived products never appear; p95 < 300 ms (BR-080, BR-081) | todo | |
 | P1-204 | `carts`, `cart_items`, `orders.cart_id`; cart routes | BE | 203, 100 | As §11.5 and `03-erd.md` §3.5; cart id is v4; prices never stored; `price` field → `422 unknown_field` (BR-005, BR-087, BR-089) | todo | |
-| P1-205 | **Checkout** | BE | 204, 101 | As §11.6; 20 parallel checkouts of one cart → one order, all 20 responses carry it; replay → `200` same order; `item_unavailable` leaves the cart untouched; guest `order_token` (BR-088, BR-089, BR-090, BR-091) | todo | |
-| P1-206 | Customer accounts: register, login, refresh rotation, logout | BE | 202, 100 | As §11.7; tokens in the body; reused refresh token revokes the session; tenant-B key with tenant-A token → `401`; customer token on any admin route → `401` (BR-021, BR-086, BR-092, BR-093) | todo | |
-| P1-207 | Password reset | BE | 206 | As §11.7; link valid 30 min, single use, revokes every session; always `202`. Blocked until the email provider is chosen (BR-094) | todo | |
-| P1-208 | `me`, order history, guest order lookup | BE | 205, 206 | As §11.8; cart follows the shopper after sign-in; one order token never opens another order (BR-082, BR-091, BR-095) | todo | |
+| P1-205 | **Checkout** | BE | 204, 101 | As §11.7 (bank transfer, before shipping and Midtrans land); 20 parallel checkouts of one cart → one order, all 20 responses carry it; replay → `200` same order; `item_unavailable` leaves the cart untouched; guest `order_token` (BR-088, BR-089, BR-090, BR-091) | todo | |
+| P1-206 | Customer accounts: register, login, refresh rotation, logout | BE | 202, 100 | As §11.8; tokens in the body; reused refresh token revokes the session; tenant-B key with tenant-A token → `401`; customer token on any admin route → `401` (BR-021, BR-086, BR-092, BR-093) | todo | |
+| P1-207 | Password reset | BE | 206, 226 | As §11.8; link valid 30 min, single use, revokes every session; always `202`; a Google-only customer can add a password (BR-094) | todo | |
+| P1-208 | `me`, order history, guest order lookup | BE | 205, 206 | As §11.9; cart follows the shopper after sign-in; one order token never opens another order (BR-082, BR-091, BR-095) | todo | |
+| P1-227 | Envelope encryption helper (AES-256-GCM, key in KMS) | BE | 007 | Encrypt/decrypt round-trips; ciphertext never equals plaintext; a log-scan test finds no secret bytes. Reused by `P1-216` and `P1-301` (BR-101, BR-129) | todo | |
+| P1-216 | `storefront_settings` + `GET`/`PATCH /v1/storefront-settings` | BE | 071, 227 | As §4 and `03-erd.md` §3.5; server key write-only; enabling Midtrans without keys → `422`; both methods off → `422` (BR-122, BR-129) | todo | |
+| P1-217 | Storefront settings screen | FE | 216 | Server key field is write-only ("set" / "replace"); shows the notification URL to copy (BR-129) | todo | |
+| P1-224 | `GET /v1/storefront/config` | BE | 216, 202 | As §11.4; contains nothing secret (BR-122, BR-127, BR-129) | todo | |
+| P1-218 | Biteship rates: client, 10-minute cache, storefront and admin rate routes | BE | 216, 204 | As §11.6 and §5.4; one platform key from config; Biteship down → `502 shipping_rates_unavailable` (BR-120) | todo | |
+| P1-219 | Checkout shipping: required choice, server re-quote | BE | 205, 218 | Within the cache window the charged price equals the quoted price; a service no longer offered → `409 shipping_unavailable`; no order on Biteship failure (BR-089, BR-121) | todo | |
+| P1-220 | Midtrans at checkout: `payments` table, Snap transaction | BE | 219, 216 | As §11.7; amount equals order total; attempt ids `ERG-000123`, `-2`, …; Midtrans down → order kept, `payment_unavailable` (BR-122, BR-123) | todo | |
+| P1-221 | Midtrans notification webhook | BE | 220 | As §11.10; bad signature → `401`, nothing changes; status confirmed by Get Status API; `settlement` marks paid once; a replayed notification is a no-op; amount mismatch never marks paid (BR-003, BR-124, BR-125) | todo | |
+| P1-222 | Pay-again route | BE | 221, 208 | As §11.10; a live attempt's link is reused; an expired one gets a new attempt; paid or cancelled → `422` (BR-126) | todo | |
+| P1-223 | Google sign-in | BE | 206, 216 | As §11.8; wrong `aud`, unverified email or bad signature → `401`; existing email account is linked, not duplicated (BR-127) | todo | |
+| P1-228 | Order emails: placed, payment received, shipped | BE | 226, 205, 221, 102 | Each email is sent once per event, from the shop's name, with courier and tracking on "shipped" (BR-128) | todo | |
+| P1-229 | Order detail shows payment attempts and chosen shipping | FE | 220, 109 | Attempts newest first with Midtrans status; `mark-paid` on a Midtrans order warns it is an override (BR-074) | todo | |
 | P1-209 | Storefront rate limits | BE | 202 | Publishable per IP and per key, secret per key, login, checkout, as BR-014; headers on every response | todo | |
 | P1-210 | Storefront auth matrix suite | BE | 208 | Table-driven over key kind × origin × fetch-metadata × token presence against every storefront route (BR-082–BR-086) | todo | |
 | P1-211 | **Customer isolation suite** | BE | 208 | Two tenants × two customers; zero leakage both ways on every customer-scoped route; extends `P1-008` to the storefront tree (BR-001, BR-082) | todo | |
-| P1-213 | Public storefront OpenAPI at `/v1/storefront/openapi.json` + docs page | CT/BE | 208 | Every §11.3 route documented; the file lives in contracts and is served by the API | todo | |
+| P1-213 | Public storefront OpenAPI at `/v1/storefront/openapi.json` + docs page | CT/BE | 222, 223, 224 | Every §11.3 route documented; the file lives in contracts and is served by the API | todo | |
 | P1-214 | Nightly retention job | BE | 204, 206 | Expired open carts and expired or revoked sessions deleted; checked-out carts kept (BR-096) | todo | |
 | P1-215 | Customer PII purge job | BE | 206, 060 | Purges one customer's PII from `customers`, `orders.customer`, `orders.shipping_address`; catalog untouched; audited (BR-097) | todo | |
-| P1-212 | Reference website from the public docs alone | FE | 213 | A throwaway site outside `new-commerce-web`, using only the docs and a publishable key: product → cart → guest checkout → order lookup, and sign-up → order history | todo | |
+| P1-212 | Reference website from the public docs alone | FE | 213, 222, 223 | A throwaway site outside `new-commerce-web`, using only the docs and a publishable key: product → cart → shipping choice → guest checkout paid with Midtrans sandbox → order lookup, and Google sign-in → order history | todo | |
 
 ---
 
@@ -182,12 +196,16 @@ order; a minimal reference website built from the public docs alone goes product
 M4 for Shopee: OAuth, item import, matching, fill-only merge, images to R2, error report. Depends
 on Shopee partner approval (`P1-080`).
 
+> **`P1-080` is parked** by the owner (6 Oct 2026): partner access for Shopee and Tokopedia is left
+> for later. Unpark it before Phase 4 starts; nothing earlier depends on it.
+
 **Exit:** re-importing a shop creates nothing new and overwrites nothing the owner edited.
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
+| P1-080 | Apply for Shopee and Tokopedia partner API access | OPS | — | Both applications submitted; dates and status noted under this table. A human task: `/next` reports it and stops | blocked | |
 | P1-300 | `channels`, `channel_listings` schema | BE | 026 | As `03-erd.md` §3.4; a single-variant item cannot be linked twice (`NULLS NOT DISTINCT`) (BR-004, BR-103) | todo | |
-| P1-301 | Credential envelope encryption (KMS) | BE | 300 | AES-256-GCM, key in KMS, decrypted only in the worker; a log-scan test finds no credential bytes (BR-101) | todo | |
+| P1-301 | Channel credentials encrypted with the `P1-227` helper | BE | 300, 227 | Decrypted only in the worker; a log-scan test finds no credential bytes (BR-101) | todo | |
 | P1-302 | Adapter interface + Shopee OAuth: connect, callback, disconnect | BE | 301 | As §10; `state` is signed and the only tenant source on callback; disconnect erases credentials and keeps links (BR-003, BR-101) | todo | |
 | P1-303 | Shopee `ListItemIDs` / `GetItems` into `ExternalItem` | BE | 302 | Replayed from recorded fixtures; per-shop token bucket; 5 retries with full jitter (BR-107) | todo | |
 | P1-304 | Import job: lock, match, create, fill-only merge | BE | 303, 060, 049 | Importing twice creates zero new rows; edited description, price, weight and SKU survive; second click returns the running job (BR-100, BR-103, BR-104, BR-105) | todo | |
@@ -282,6 +300,9 @@ Recorded here because these will be proposed again and again, and the answer sho
 | Returns, RMA | No |
 | Outbound webhooks | No |
 | `Idempotency-Key` on mutations | No; cart idempotency (BR-088) |
-| Payment gateway | Open question, decide before Phase 3 |
+| Payment gateways other than Midtrans | Not scheduled (BR-074) |
+| Courier booking, labels via Biteship | No; rates only (BR-120) |
+| WhatsApp or OTP sign-in | No; email + password and Google (BR-092) |
+| Multi-currency | No; IDR only (BR-029) |
 | Promotions engine, discount codes | No |
 | Per-channel pricing | No |

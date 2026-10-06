@@ -9,7 +9,7 @@ lives in the ERD or the API spec.
 
 Ids are grouped by area and never reused: `001–019` platform · `020–029` auth & team ·
 `030–049` catalog · `050–059` media · `060–069` jobs & export · `070–079` orders ·
-`080–099` storefront · `100–119` marketplace import. A rule that no longer applies is marked
+`080–099` storefront · `100–119` marketplace import · `120–129` shipping, payments & email. A rule that no longer applies is marked
 **retired** and keeps its number.
 
 ---
@@ -37,12 +37,14 @@ very confusing to debug.
 
 ### BR-003 The tenant comes from a credential, never from the request
 No header, query parameter or body field can select a tenant. Admin requests take it from the
-staff token; storefront requests take it from the API key (BR-086). Exactly two reads cross
+staff token; storefront requests take it from the API key (BR-086). Exactly three reads cross
 tenants on a request path, each through its own `SECURITY DEFINER` function that returns only
 what it must:
 
 - staff login: `id, tenant_id, password_hash, status, role`;
-- API key resolution: `id, tenant_id, kind, allowed_origins, revoked_at`.
+- API key resolution: `id, tenant_id, kind, allowed_origins, revoked_at`;
+- Midtrans notification: `webhook_id` → `tenant_id`, encrypted server key, environment. The tenant
+  is trusted only after the notification's signature verifies with that key (BR-124).
 
 Cross-tenant admin work uses a separate `BYPASSRLS` role and pool, is audit-logged, and is never
 reachable from a request.
@@ -121,7 +123,7 @@ dangling.
 ### BR-013 Logs redact by default
 Structured logging uses an **allow-list** of fields: a new field is redacted until someone allows
 it. `Authorization`, `X-Api-Key`, `X-Order-Token`, cookies, passwords and channel credentials are
-never logged, allow-list or not.
+never logged, allow-list or not, and neither are Midtrans server keys or Google ID tokens.
 
 *Why:* v2 holds shopper PII (names, emails, phones, addresses). A new field should be redacted by
 default rather than leaked by default.
@@ -256,9 +258,12 @@ active owner of a tenant cannot be disabled or demoted.
 *Why:* a key that could be read back is a key that leaks from a screenshot of the admin.
 
 ### BR-029 Tenant defaults
-A new tenant defaults to time zone `Asia/Jakarta` and currency `IDR` without anyone choosing.
-New money fields default to the tenant's currency. Only the owner can change tenant settings,
-and `currency` is fixed for now (IDR-only, see `01-product-requirements.md` §9).
+A new tenant defaults to time zone `Asia/Jakarta` without anyone choosing. Only the owner can
+change tenant settings.
+
+**IDR only.** Every amount is IDR and `currency` cannot be changed; there is no multi-currency and
+no cross-border selling. The `currency` columns and the scale of 2 stay (BR-006) so that adding a
+currency later is a feature, not a migration.
 
 ---
 
@@ -310,8 +315,9 @@ Deleting a category that has children or assigned products is rejected with
 Moving a product from `draft` to `active` requires:
 1. every unarchived variant has a SKU;
 2. every unarchived variant has a price greater than zero;
-3. at least one image;
-4. at least one category of kind `category`.
+3. every unarchived variant has a weight greater than zero (shipping rates need it, BR-120);
+4. at least one image;
+5. at least one category of kind `category`.
 
 On failure the product stays `draft` and the response lists every failure, so the client can link
 to the offending cell (`422 publish_check_failed`). This is a check on the publish path, **not** a
@@ -466,13 +472,17 @@ Shipping is recorded, not booked: there is no courier integration (see out of sc
 ### BR-073 Every status change is audited once
 Every transition writes exactly one `audit_log` row with actor, from and to (BR-018).
 
-### BR-074 Payment is confirmed by an operator
-v2 has no payment gateway: an operator checks the bank transfer and marks the order paid. A
-gateway, when it comes, calls the same Transition (BR-071).
+### BR-074 Two ways to pay
+- **Bank transfer:** an operator checks the transfer and marks the order paid.
+- **Midtrans:** a verified Midtrans notification marks it paid (BR-124, BR-125).
+
+Both call the same Transition (BR-071), so a payment confirmed twice, by an operator and by
+Midtrans or by a repeated notification, is harmless. Which methods a shop offers is its own
+setting (BR-122).
 
 ### BR-075 Refunds happen outside the system and are recorded
-Cancelling a paid order moves no money. The operator refunds the customer and records it, which
-sets `refunded_at`. Cancelled orders with `paid_at` set and `refunded_at` empty form the
+Cancelling a paid order moves no money. The operator refunds the customer (by bank transfer, or in
+the Midtrans dashboard for a Midtrans payment) and records it, which sets `refunded_at`. Cancelled orders with `paid_at` set and `refunded_at` empty form the
 "Cancelled, refund owed" saved view, so none is forgotten. A refund can only be recorded on a
 cancelled order that was paid, and only once.
 
@@ -568,8 +578,8 @@ Checkout locks the cart row first, so two checkouts of the same cart serialise. 
 shopper's side both taps "worked".
 
 ### BR-089 Prices are computed on the server, always
-The checkout request has no price field. Totals come from `variants.price_amount` at the moment of
-checkout. Any unknown field, a price field in particular, is rejected with `422 unknown_field`,
+The checkout request has no price field. Item totals come from `variants.price_amount` at the
+moment of checkout, and shipping comes from the server's own Biteship quote (BR-121). Any unknown field, a price field in particular, is rejected with `422 unknown_field`,
 never ignored, on every storefront route.
 
 *Why:* a bug on the website shows up in development instead of in a customer's total.
@@ -588,7 +598,9 @@ verifies by recomputing and comparing in constant time. A token opens exactly on
 
 ### BR-092 Customer accounts are per tenant
 Registration and sign-in are per tenant: the same email at two shops is two unrelated customers.
-Email is stored lower-case and unique per tenant. Passwords use the staff parameters (BR-022).
+Email is stored lower-case and unique per tenant. A customer signs in with **email and password,
+or with Google** (BR-127); there is no WhatsApp or OTP sign-in. Passwords use the staff
+parameters (BR-022). A Google-only customer has no password until they set one by reset.
 Staff can read customers but never create accounts, set passwords or see password hashes; a
 customer resets their own (BR-094).
 
@@ -602,7 +614,8 @@ customer resets their own (BR-094).
 
 ### BR-094 Password reset
 A reset sends a one-time link valid for 30 minutes. Using it revokes every session of that
-customer. The request always answers `202`, whether or not the email exists (BR-021).
+customer. The request always answers `202`, whether or not the email exists (BR-021). A
+Google-only customer may use it to add a password.
 
 ### BR-095 Carts follow the shopper
 When a request carries both a cart id and a customer token, the cart's `customer_id` is set, so a
@@ -678,13 +691,89 @@ again by SKU, or creates it (BR-103).
 
 ---
 
+## 9. Shipping, payments & email
+
+### BR-120 Shipping rates come from Biteship
+Rates are quoted by Biteship's rates API with **one platform API key** held in server config,
+never in tenant data. A quote uses the tenant's `origin_postal_code`, the shopper's destination
+postal code, the tenant's enabled couriers, and the cart's items with their weights. Courier
+booking, labels and pickup are not done here (BR-072).
+
+*Why one key:* a rate check costs about Rp5, which the platform absorbs. A key per owner would add
+setup to every onboarding for no gain.
+
+### BR-121 Shipping is re-quoted at checkout
+The shopper picks a `courier_code` and `courier_service_code` from the quote. Checkout quotes again
+on the server and charges that price. Quotes are cached for 10 minutes per (tenant, destination,
+total weight, couriers), so the price the shopper saw is the price charged within that window. A
+service no longer offered is `409 shipping_unavailable`; Biteship failing is
+`502 shipping_rates_unavailable`, and checkout cannot complete until it is back.
+
+### BR-122 Payment methods are per shop
+A shop enables `bank_transfer`, `midtrans`, or both. Checkout must name an enabled method, else
+`422`. `midtrans` can only be enabled once its server key, client key and environment are set.
+
+### BR-123 Midtrans payments are attempts
+Each Midtrans Snap transaction is one `payments` row. Midtrans refuses a reused `order_id`, so the
+first attempt uses the order number (`ERG-000123`) and later attempts add a suffix
+(`ERG-000123-2`). The amount is always the order's `total_amount`; nothing from the client sets
+it. One order has at most one live attempt.
+
+### BR-124 A Midtrans notification is trusted only after two checks
+1. `signature_key` equals `SHA512(order_id + status_code + gross_amount + server_key)` with the
+   tenant's server key, else `401` and nothing changes.
+2. Midtrans' Get Status API confirms the status before anything is written.
+
+Then `gross_amount` must equal the attempt's amount, else the attempt is flagged for an operator
+and the order is not marked paid. A verified notification is answered `200` even when it changes
+nothing, so Midtrans stops retrying. The notification URL is set on each transaction
+(`X-Override-Notification`), so owners do not have to configure it.
+
+*Why the status call:* the signature proves who sent the message; the status call proves the
+message is current, and costs one request at a few orders a day.
+
+### BR-125 Paid means settled
+An attempt is paid when `transaction_status` is `settlement`, or `capture` with
+`fraud_status = accept`. That calls Transition to `paid` (BR-074). `pending` changes nothing.
+`expire`, `cancel` and `deny` fail the attempt and leave the order `pending`, so the shopper can
+pay again (BR-126) or ops can cancel it.
+
+### BR-126 Paying again
+The shopper (customer token or order token) can ask for a payment link for a `pending` Midtrans
+order. A live attempt's link is returned; if the last attempt failed or expired, a new attempt is
+created. A paid or cancelled order has no payment link.
+
+### BR-127 Google sign-in
+Each shop sets its own Google OAuth client ID. The website gets a Google ID token and sends it to
+the API, which verifies the signature against Google's keys and checks `iss` is Google, `aud` is
+the shop's client ID, and `email_verified` is true. The customer is found by Google subject, then
+by email (the Google identity is linked to the existing account), else created. Sessions are the
+same as any customer's (BR-093).
+
+*Why per shop:* Google's consent screen then shows the shop's name, and the client ID's allowed
+origins are the shop's own domain.
+
+### BR-128 Transactional email
+Sent through Resend from `"{shop name}" <no-reply@{domain}>` with Reply-To
+set to the shop's contact email. Emails: staff invitation, customer password reset, order placed,
+payment received, order shipped (with courier and tracking). The worker sends them after the
+change commits; a rare lost email is accepted, and every email's content is also visible in the
+admin or on the website.
+
+### BR-129 Integration secrets are write-only
+The Midtrans server key is envelope-encrypted like channel credentials (BR-101), can be set or
+replaced, and is never returned: responses say only whether it is set. Client keys and Google
+client IDs are public by design and are returned.
+
+---
+
 ## Traceability
 
 | BR | Shows up in | Proven by |
 |---|---|---|
 | 001 | every tenant table | P1-006, P1-008, P1-009 |
 | 002 | every request | P1-007 |
-| 003 | staff login, API key resolution | P1-008, P1-011, P1-202 |
+| 003 | staff login, API key resolution, Midtrans webhook | P1-008, P1-011, P1-202, P1-221 |
 | 004 | `variants`, `order_lines`, `cart_items`, … | P1-020, P1-026, P1-100, P1-204 |
 | 005–007 | every payload | P1-028 |
 | 008–009 | every create and `PATCH` | P1-024, P1-028 |
@@ -708,7 +797,7 @@ again by SKU, or creates it (BR-103).
 | 050–053 | media library, image domain | P1-042–045, P1-048 |
 | 060, 063–065 | jobs, order export | P1-060, P1-107, P1-112 |
 | 070–073 | order detail | P1-101, P1-102 |
-| 074–075 | order list saved views | P1-102, P1-103, P1-108 |
+| 074–075 | order list saved views, Midtrans payments | P1-102, P1-103, P1-108, P1-221 |
 | 076–079 | orders, manual entry | P1-100, P1-104, P1-105 |
 | 080–081 | every storefront catalog route | P1-203 |
 | 082–086 | every storefront route | P1-202, P1-210, P1-211 |
@@ -718,3 +807,8 @@ again by SKU, or creates it (BR-103).
 | 096 | nightly retention | P1-214 |
 | 097 | data-subject request | P1-215 |
 | 100–108 | marketplace import | P1-300–309, P1-400, P1-401 |
+| 120–121 | checkout shipping choice | P1-218, P1-219 |
+| 122–126 | checkout payment, pay again, order detail | P1-216, P1-220, P1-221, P1-222, P1-229 |
+| 127 | sign in with Google | P1-223, P1-224 |
+| 128 | every email | P1-225, P1-226, P1-228 |
+| 129 | storefront settings | P1-216, P1-217, P1-227 |

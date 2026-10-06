@@ -18,7 +18,8 @@ the other, in the same commit.
 | Base | `https://api.{domain}/v1`. Version in the path; a breaking change gets `/v2` |
 | Auth (admin) | `Authorization: Bearer <JWT>`, 15-minute access token, rotating refresh in an httpOnly cookie (BR-022). Admin routes accept nothing else |
 | Auth (storefront) | `X-Api-Key: pk_live_…` or `sk_live_…` on every request, plus `Authorization: Bearer <customer token>` or `X-Order-Token` where personal data is involved (§11.1) |
-| Tenant | From the staff token or the API key, **never** from a header, query or body (BR-003) |
+| Auth (webhook) | `POST /v1/webhooks/midtrans/{webhook_id}` only: authenticated by Midtrans' `signature_key` and confirmed with the Get Status API (BR-124, §11.10) |
+| Tenant | From the staff token, the API key or a verified webhook, **never** from a header, query or body (BR-003) |
 | Content type | `application/json; charset=utf-8` |
 | Casing | `snake_case` in JSON, matching the database, so no translation layer can drift |
 | Ids | UUID strings (BR-005). Storefront products are addressed by `slug`, orders by `order_number` |
@@ -76,8 +77,11 @@ whatever that failure needs.
 | `category_in_use` | 409 | Deleting a category with children or products | 036 |
 | `illegal_transition` | 409 | Order status move not in the allow-list | 070 |
 | `item_unavailable` | 409 | Checkout of a cart holding variants no longer visible | 090 |
+| `shipping_unavailable` | 409 | The chosen courier service is no longer offered for this cart and destination | 121 |
 | `rate_limited` | 429 | Over the limit; `Retry-After` and `RateLimit-*` headers | 014 |
 | `channel_unavailable` | 502 | Marketplace API failed during connect | 102 |
+| `shipping_rates_unavailable` | 502 | Biteship failed or timed out | 121 |
+| `payment_unavailable` | 502 | Midtrans failed to create a Snap transaction; the order exists and payment can be retried | 126 |
 | `internal` | 500 | Anything unexpected. `detail` is deliberately generic; `trace_id` is the lead | 011 |
 
 ### 1.2 Rate limits
@@ -208,6 +212,8 @@ cannot do (BR-025).
 |---|---|---|---|
 | `GET` | `/v1/settings` | `settings:read` | 029 |
 | `PATCH` | `/v1/settings` | `settings:write` | 009, 029 |
+| `GET` | `/v1/storefront-settings` | `settings:read` | 120, 122, 127, 129 |
+| `PATCH` | `/v1/storefront-settings` | `settings:write` | 009, 120, 122, 127, 129 |
 | `GET` | `/v1/roles` | `users:read` | 023 |
 | `GET` | `/v1/users?status=&role=&limit=&cursor=` | `users:read` | — |
 | `POST` | `/v1/users/invite` | `users:write` | 020, 023, 026 |
@@ -234,7 +240,42 @@ PATCH /v1/settings
 ```
 
 `name`, `timezone` and `order_prefix` are editable; a new prefix applies to new orders only.
-`currency` is fixed (BR-029).
+`currency` is always `IDR` (BR-029).
+
+### Storefront settings
+
+How the shop's website sells: contact email, Google sign-in, shipping origin and couriers, and
+payment methods.
+
+```json
+GET /v1/storefront-settings
+200 OK
+{ "contact_email": "halo@tokoabc.com",
+  "google_client_id": "1234-abc.apps.googleusercontent.com",
+  "origin_postal_code": "40115",
+  "shipping_couriers": ["jne", "jnt", "sicepat", "anteraja"],
+  "bank_transfer_enabled": true,
+  "bank_transfer_instructions": "Transfer to BCA 123456789 a.n. Toko ABC",
+  "midtrans_enabled": true,
+  "midtrans_environment": "production",
+  "midtrans_client_key": "Mid-client-…",
+  "midtrans_server_key_set": true,                 ← the key itself is never returned (BR-129)
+  "midtrans_notification_url": "https://api.{domain}/v1/webhooks/midtrans/5b0e…",
+  "updated_at": "2026-10-06T09:15:00Z" }
+
+PATCH /v1/storefront-settings
+{ "midtrans_server_key": "Mid-server-…", "midtrans_enabled": true }
+200 OK   ← same body as GET
+```
+
+- `midtrans_server_key` is write-only: accepted on `PATCH`, never in a response.
+- Enabling `midtrans` without environment, client key and server key set is `422`. Turning off
+  both payment methods is `422` (BR-122).
+- `origin_postal_code` is 5 digits; `shipping_couriers` must be Biteship courier codes. Shipping
+  rates need both (BR-120).
+- `midtrans_notification_url` is informational: the API sends it on every Snap transaction
+  (BR-124), so the owner only needs to paste it into the Midtrans dashboard if Midtrans asks.
+- No `If-Match` (BR-010).
 
 ### Roles
 
@@ -341,6 +382,7 @@ GET /v1/audit-log?subject_type=order&subject_id=0192…
 | `POST` | `/v1/orders/{id}/cancel` | `orders:write` | 070, 071, 073 |
 | `POST` | `/v1/orders/{id}/refund` | `orders:write` | 075 |
 | `POST` | `/v1/orders/export` | `exports:read` | 060, 063, 064, 065 |
+| `POST` | `/v1/shipping/rates` | `orders:write` | 120 |
 | `GET` | `/v1/customers?q=&limit=&cursor=` | `customers:read` | 092 |
 | `GET` | `/v1/customers/{id}` | `customers:read` | 092 |
 
@@ -388,6 +430,12 @@ GET /v1/orders/{id}
   "shipping": { "amount": 0, "currency": "IDR" },
   "discount": { "amount": 0, "currency": "IDR" },
   "total":    { "amount": 39800000, "currency": "IDR" },
+  "payment_method": "midtrans",
+  "payments": [                                         ← Midtrans attempts, newest first
+    { "provider_order_id": "ERG-000123", "status": "paid",
+      "transaction_status": "settlement", "amount": { "amount": 39800000, "currency": "IDR" },
+      "paid_at": "…", "created_at": "…" } ],
+  "shipping_courier": "jne", "shipping_service": "reg",  ← what the shopper chose
   "courier": null, "tracking_number": null,
   "placed_at": "…", "paid_at": "…", "shipped_at": null, "completed_at": null,
   "cancelled_at": null, "refunded_at": null,
@@ -417,8 +465,10 @@ POST /v1/orders/{id}/refund    {"note": "BCA transfer 6 Oct"} → 200 Order   (s
 
 - A move not in the allow-list is `409 illegal_transition` naming from and to; nothing changes.
 - Moving to the current status is `200` with the unchanged order.
-- `ship` without `courier` or `tracking_number` is `422` (BR-072). `courier` is one of `jne`, `jnt`,
-  `sicepat`, `anteraja`, `pos`, `other`.
+- `ship` without `tracking_number` is `422` (BR-072). `courier` is a Biteship courier code and
+  defaults to the order's `shipping_courier`; a manual order with no chosen courier must send it.
+- `mark-paid` works for either payment method. On a Midtrans order it is the operator's override
+  (a payment confirmed outside Midtrans); a later notification is then a no-op (BR-074).
 - `refund` on an order that is not cancelled, was never paid, or is already refunded is `422`
   (BR-075).
 
@@ -433,12 +483,24 @@ POST /v1/orders
   "lines": [ { "variant_id": "0192…", "qty": 1, "discount": { "amount": 2000000 } } ],
   "shipping": { "amount": 1500000 },
   "note": "Order via WhatsApp" }
+                                     ← or "shipping": { "courier_code": "jne", "courier_service_code": "reg" }
 
 201 Created   ← Order, status pending
 ```
 
 Line prices come from the catalog exactly as checkout does (BR-078); a `unit_price` in the request
 is `422 unknown_field`. Archived variants are `422` naming the line. `source` must be `manual`.
+`shipping` is either a typed `amount` or a courier choice, which is quoted like checkout (BR-121).
+Manual orders are always `bank_transfer`.
+
+#### Shipping rates for a manual order
+
+```json
+POST /v1/shipping/rates
+{ "destination_postal_code": "60231",
+  "lines": [ { "variant_id": "0192…", "qty": 1 } ] }
+200 OK   ← same "options" shape as §11.6
+```
 
 ### 5.5 Customers
 
@@ -984,12 +1046,15 @@ headers (`X-Api-Key`, `Authorization`, `X-Order-Token`, `Content-Type`).
 | `GET` | `/v1/storefront/products/{slug}` | key | 080, 081 |
 | `GET` | `/v1/storefront/categories?kind=` | key | 031 |
 | `GET` | `/v1/storefront/brands` | key | — |
+| `GET` | `/v1/storefront/config` | key | 122, 127 |
 | `POST` | `/v1/storefront/carts` | key | 087 |
 | `GET` | `/v1/storefront/carts/{cart_id}` | key + cart | 087 |
 | `PUT` | `/v1/storefront/carts/{cart_id}/items/{variant_id}` | key + cart | 087, 089 |
-| `POST` | `/v1/storefront/carts/{cart_id}/checkout` | key + cart (+ customer) | 088, 089, 090, 091, 095 |
+| `POST` | `/v1/storefront/carts/{cart_id}/shipping-rates` | key + cart | 120, 121 |
+| `POST` | `/v1/storefront/carts/{cart_id}/checkout` | key + cart (+ customer) | 088, 089, 090, 091, 095, 121, 122, 123 |
 | `POST` | `/v1/storefront/customers` | key | 092 |
 | `POST` | `/v1/storefront/auth/login` | key | 021, 093 |
+| `POST` | `/v1/storefront/auth/google` | key | 093, 127 |
 | `POST` | `/v1/storefront/auth/refresh` | key | 093 |
 | `POST` | `/v1/storefront/auth/logout` | key + customer | 093 |
 | `POST` | `/v1/storefront/auth/password-reset` | key | 094 |
@@ -999,6 +1064,8 @@ headers (`X-Api-Key`, `Authorization`, `X-Order-Token`, `Content-Type`).
 | `GET` | `/v1/storefront/me/orders?limit=&cursor=` | key + customer | 082 |
 | `GET` | `/v1/storefront/me/orders/{order_number}` | key + customer | 082 |
 | `GET` | `/v1/storefront/orders/{order_number}` | key + order token | 082, 091 |
+| `POST` | `/v1/storefront/orders/{order_number}/payment` | key + customer or order token | 126 |
+| `POST` | `/v1/webhooks/midtrans/{webhook_id}` | Midtrans signature | 003, 124, 125 |
 
 ### 11.4 Catalog
 
@@ -1049,7 +1116,19 @@ GET /v1/storefront/categories?kind=category
 GET /v1/storefront/brands
 200 OK
 { "data": [ { "slug": "erigo", "name": "Erigo" } ] }            ← unarchived, by name
+
+GET /v1/storefront/config
+200 OK
+{ "shop_name": "Toko ABC", "currency": "IDR",
+  "google_client_id": "1234-abc.apps.googleusercontent.com",   ← null when Google sign-in is off
+  "payment_methods": ["bank_transfer", "midtrans"],
+  "bank_transfer_instructions": "Transfer to BCA 123456789 a.n. Toko ABC",
+  "midtrans": { "client_key": "Mid-client-…", "environment": "production",
+                "snap_js_url": "https://app.midtrans.com/snap/snap.js" } }   ← null when off
 ```
+
+Everything here is public by design; the website reads it once to render sign-in buttons and the
+payment step.
 
 ### 11.5 Cart
 
@@ -1084,7 +1163,29 @@ GET /v1/storefront/carts/{cart_id}
 - `qty` outside 0–999 is `422`. A `price` field anywhere is `422 unknown_field` (BR-089).
 - With a customer token, the cart is attached to that customer (BR-095).
 
-### 11.6 Checkout
+### 11.6 Shipping rates
+
+```json
+POST /v1/storefront/carts/{cart_id}/shipping-rates
+{ "destination_postal_code": "40115" }
+
+200 OK
+{ "weight_grams": 400,
+  "options": [
+    { "courier_code": "jne", "courier_service_code": "reg",
+      "courier_name": "JNE", "service_name": "Reguler",
+      "price": { "amount": 1100000, "currency": "IDR" }, "duration": "2 - 3 days" },
+    { "courier_code": "sicepat", "courier_service_code": "reg",
+      "courier_name": "SiCepat", "service_name": "Reguler",
+      "price": { "amount": 1000000, "currency": "IDR" }, "duration": "1 - 2 days" } ] }
+```
+
+- Quoted by Biteship for the shop's origin and enabled couriers, over the cart's available items
+  (BR-120). Quotes are cached 10 minutes; checkout within that window charges the same price
+  (BR-121).
+- Biteship down → `502 shipping_rates_unavailable`. An empty cart → `422 empty_cart`.
+
+### 11.7 Checkout
 
 `POST /v1/storefront/carts/{cart_id}/checkout`. Nothing in the request is a price:
 
@@ -1092,6 +1193,8 @@ GET /v1/storefront/carts/{cart_id}
 { "contact": { "name": "Rina", "email": "rina@example.com", "phone": "+6281234567890" },
   "shipping_address": { "line1": "Jl. Melati 12", "line2": null, "city": "Bandung",
                         "province": "Jawa Barat", "postal_code": "40115" },
+  "shipping": { "courier_code": "jne", "courier_service_code": "reg" },
+  "payment_method": "midtrans",
   "note": "Tolong dibungkus kado" }
 ```
 
@@ -1103,8 +1206,13 @@ GET /v1/storefront/carts/{cart_id}
     { "sku": "TS-BLK-M", "title": "Erigo Basic Tee — Black / M", "qty": 2,
       "unit_price": { "amount": 19900000, "currency": "IDR" } } ],
   "subtotal": { "amount": 39800000, "currency": "IDR" },
-  "shipping": { "amount": 0, "currency": "IDR" },
-  "total":    { "amount": 39800000, "currency": "IDR" },
+  "shipping": { "amount": 1100000, "currency": "IDR" },   ← re-quoted on the server (BR-121)
+  "total":    { "amount": 40900000, "currency": "IDR" },
+  "shipping_courier": "jne", "shipping_service": "reg",
+  "payment_method": "midtrans",
+  "payment": { "snap_token": "66e4fa55-…",              ← null for bank_transfer
+               "redirect_url": "https://app.midtrans.com/snap/v4/redirection/66e4fa55-…",
+               "expires_at": "2026-10-07T09:15:00Z" },
   "placed_at": "2026-10-06T09:15:00Z",
   "order_token": "q7Zr…" }                ← guests only; send as X-Order-Token (BR-091)
 ```
@@ -1130,10 +1238,18 @@ sequenceDiagram
   and the order goes into their history (BR-095).
 - Unavailable items → `409 item_unavailable` listing them; the cart is untouched (BR-090). Empty
   cart → `422 empty_cart`.
-- `shipping` is `0` until the shipping-cost question is closed (`01-product-requirements.md` §9).
-- p95 under 1 s. 10 checkouts per minute per IP (BR-014).
+- `shipping` and `payment_method` are required. A courier service not in the fresh quote is
+  `409 shipping_unavailable`; Biteship down is `502 shipping_rates_unavailable` and no order is
+  created (BR-121). A method the shop has not enabled is `422` (BR-122).
+- **Midtrans:** the order is created first, then the Snap transaction for its total (BR-123). If
+  Midtrans fails, the order still exists, `payment` is `null`, and the response is
+  `201` with a `payment_error` of `payment_unavailable`; the website offers "pay now" through
+  §11.10. A replay returns the order with its live payment link.
+- **Bank transfer:** `payment` is `null`; the website shows `bank_transfer_instructions` from
+  `/config`.
+- p95 under 1 s, excluding the Midtrans call. 10 checkouts per minute per IP (BR-014).
 
-### 11.7 Customer accounts
+### 11.8 Customer accounts
 
 ```json
 POST /v1/storefront/customers
@@ -1148,6 +1264,10 @@ POST /v1/storefront/auth/login
   "refresh_token": "rt_8d1f…",                 ← in the body, not a cookie (BR-093)
   "customer": { "id": "0192…", "email": "rina@example.com", "name": "Rina",
                 "phone": "+6281234567890" } }
+
+POST /v1/storefront/auth/google
+{ "id_token": "eyJhbGciOiJSUzI1NiIs…" }      ← from Google Identity Services on the website
+200 OK   ← Tokens; 201 when the customer was just created
 
 POST /v1/storefront/auth/refresh
 { "refresh_token": "rt_8d1f…" }
@@ -1171,10 +1291,14 @@ POST /v1/storefront/auth/password-reset/confirm
 - Failed logins are all the same `401 unauthenticated` (BR-021).
 - A refresh token presented a second time revokes the whole session: `401`, and the website must
   sign the customer in again (BR-093).
+- Google: the token's signature, `iss`, `aud` (the shop's `google_client_id`) and
+  `email_verified` are checked; any failure is `401 unauthenticated`. A shop without a client ID
+  answers `422`. A Google sign-in with the email of an existing password account links the two
+  (BR-127).
 - `reset_url` must start with one of the key's allowed origins (secret keys: any `https` URL); the
   emailed link is `reset_url?token=…`, valid 30 minutes.
 
-### 11.8 Me and order history
+### 11.9 Me and order history
 
 ```json
 GET /v1/storefront/me
@@ -1198,6 +1322,7 @@ GET /v1/storefront/orders/ERG-000123          X-Order-Token: q7Zr…
   "lines": [ … as in checkout … ],
   "subtotal": { … }, "shipping": { … }, "discount": { … }, "total": { … },
   "shipping_address": { … },
+  "payment_method": "midtrans", "payment_status": "paid",   ← pending | paid | failed | null
   "courier": "jne", "tracking_number": "JNE0123456789",
   "placed_at": "…", "paid_at": "…", "shipped_at": "…", "completed_at": null,
   "cancelled_at": null }
@@ -1206,6 +1331,37 @@ GET /v1/storefront/orders/ERG-000123          X-Order-Token: q7Zr…
 - `/me/orders/{order_number}` for another customer's order is `404` (BR-011).
 - The guest route with a missing or wrong token is `401 customer_auth_required`; a token for one
   order never opens another (BR-091).
+
+### 11.10 Payments
+
+```json
+POST /v1/storefront/orders/ERG-000123/payment     Authorization or X-Order-Token
+200 OK
+{ "snap_token": "7a01…", "redirect_url": "https://app.midtrans.com/snap/v4/redirection/7a01…",
+  "expires_at": "2026-10-07T11:00:00Z" }
+```
+
+- Returns the live attempt's link, or creates a new attempt if the last one failed or expired
+  (BR-126). Only for a `pending` Midtrans order; otherwise `422`. Midtrans down is
+  `502 payment_unavailable`.
+
+```
+POST /v1/webhooks/midtrans/{webhook_id}           Midtrans notification body (JSON)
+200 OK          verified, whether or not it changed anything
+401             signature does not verify; nothing changes
+```
+
+Not under `/v1/storefront`: no API key, no CORS. The handler (BR-124, BR-125):
+
+1. Resolves `webhook_id` through `resolve_midtrans_webhook` (BR-003); unknown → `404`.
+2. Verifies `signature_key = SHA512(order_id + status_code + gross_amount + server_key)`.
+3. Calls Midtrans' Get Status API for `order_id` and uses that answer, not the body.
+4. Finds the attempt by `provider_order_id`; checks `gross_amount` equals its amount, else marks it
+   `amount_mismatch` for an operator.
+5. `settlement`, or `capture` + `fraud_status=accept` → attempt `paid`, Transition to `paid`.
+   `expire`, `cancel`, `deny` → attempt `failed`. Anything else is recorded only.
+
+Midtrans retries non-2xx answers, so step 3 failing returns `503` and the retry finishes the job.
 
 ---
 
@@ -1221,7 +1377,9 @@ Asked for often enough to say so explicitly.
 | Returns, RMA | Out of scope |
 | Outbound webhooks to tenants | Out of scope |
 | `Idempotency-Key` header | Replaced by cart idempotency (BR-088) |
-| Payment gateway callbacks | Open question, decide before Phase 3 |
+| Payment gateways other than Midtrans | Not scheduled; another gateway would be a new caller of Transition (BR-074) |
+| Courier booking through Biteship | Out of scope; rates only (BR-120) |
 | Staff password change and reset | Not scheduled |
-| Customer email change, WhatsApp OTP sign-in | Not scheduled; OTP is an open question |
+| Customer email change | Not scheduled |
+| WhatsApp or OTP sign-in | No; email + password and Google only (BR-092) |
 | Promotions, discount codes | Out of scope; manual orders have per-line discounts only |
