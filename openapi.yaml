@@ -2,22 +2,23 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 1.6.1
+  version: 2.0.0
   description: |
-    Phase 1 — Catalog & Foundation.
+    Ecommerce Backoffice v2 — the admin API (`/v1`). The storefront API (`/v1/storefront`) is
+    published as its own document, `/v1/storefront/openapi.json`, built by `P1-213`.
 
-    **This file is a skeleton.** It carries the conventions from `04-api-spec.md` §1 that every
-    endpoint depends on — authentication, the error envelope, money, pagination, optimistic
-    concurrency, rate limiting — and no endpoints at all.
+    **This file is a skeleton plus the paths already built.** It carries the conventions from
+    `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
+    money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles.
 
-    Paths are added by the backlog item that owns them: `P1-021` brands, `P1-024` categories,
-    `P1-028` products, `P1-029` variants, `P1-040` the variant matrix, `P1-043` media, `P1-060`
-    jobs, `P1-061` export. Adding them all up front would pre-empt design decisions those items
-    are meant to make. `P1-011` added the three auth paths below.
+    Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
+    generates a strict server interface from this file, so a path listed here before its handler
+    exists breaks the build.
 
-    That leaves this file **incomplete** relative to `04-api-spec.md` §2–§10, not in conflict with
-    it. For anything both files describe they must agree: change one, change the other, in the
-    same commit.
+    That leaves this file **incomplete** relative to `04-api-spec.md`, not in conflict with it.
+    For anything both files describe they must agree: change one, change the other, in the same
+    commit.
 
     `/healthz` is deliberately absent and stays that way. A liveness probe is a property of how
     the service is deployed, not of the contract, and putting it here would make every future
@@ -26,16 +27,16 @@ info:
 servers:
   - url: https://api.{domain}/v1
     description: |
-      Production. The domain is still undecided — see `05-backlog.md` §M4, `P1-001`.
+      Production. The domain is still undecided — see `05-backlog.md`, `P1-001`.
     variables:
       domain:
         default: example.com
   - url: http://localhost:8080/v1
     description: Local development, against the host services from `P1-000`.
 
-# Every endpoint requires a bearer token unless it opts out with `security: []`.
+# Every admin endpoint requires a staff bearer token unless it opts out with `security: []`.
 # The unauthenticated ones are login and refresh; accept-invite joins them when P1-064
-# adds it.
+# adds it. Storefront security schemes are declared below for the storefront document.
 security:
   - bearerAuth: []
 
@@ -132,14 +133,14 @@ paths:
   /roles:
     get:
       operationId: listRoles
-      summary: The five seeded roles and the permissions each grants
+      summary: The four seeded roles and the permissions each grants
       description: |
-        Fixed and identical for every tenant. Phase 1 has no custom roles and no per-user
+        Fixed and identical for every tenant. There are no custom roles and no per-user
         overrides, so this is a constant -- it exists so a client can render a role picker and
         explain what a role means without hardcoding the matrix from `04-api-spec.md` §3.
 
         Requires `users:read`, because it is part of the team-management surface. An `ops` user
-        gets `403` naming that permission (BR-024, `01-product-requirements.md` §5.5).
+        gets `403` naming that permission (BR-024).
       responses:
         "200":
           description: The seeded roles.
@@ -162,12 +163,37 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: |
-        A 15-minute JWT access token for UI sessions, or an API key for integrators. Both travel
-        in `Authorization: Bearer`.
+        A 15-minute staff JWT (`aud = admin`) for the Next.js admin. Admin routes accept nothing
+        else: API keys and customer tokens are storefront credentials and are rejected here
+        (BR-086).
 
         The tenant is derived from the token and is **never** read from a header, query parameter
         or request body — accepting it from the request would be a trivial cross-tenant
-        escalation.
+        escalation (BR-003).
+
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: |
+        Storefront only. `pk_live_…` (publishable, origin-checked) or `sk_live_…` (secret, server
+        side only). The tenant comes from the key (BR-028, BR-083, BR-084).
+
+    customerBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Storefront only. A 15-minute customer JWT (`aud = storefront`, `tid` must match the API
+        key's tenant), sent alongside `X-Api-Key` (BR-086, BR-093).
+
+    orderToken:
+      type: apiKey
+      in: header
+      name: X-Order-Token
+      description: |
+        Storefront only. The HMAC guest order token returned by checkout; opens exactly one order
+        (BR-091).
 
   parameters:
 
@@ -271,7 +297,7 @@ components:
           type: string
         role:
           type: string
-          enum: [owner, admin, ops, warehouse, viewer]
+          enum: [owner, admin, ops, viewer]
         permissions:
           type: array
           description: |
@@ -303,12 +329,12 @@ components:
 
     Role:
       type: object
-      description: One of the five seeded roles and everything it grants.
+      description: One of the four seeded roles and everything it grants.
       required: [name, permissions]
       properties:
         name:
           type: string
-          enum: [owner, admin, ops, warehouse, viewer]
+          enum: [owner, admin, ops, viewer]
         description:
           type: string
           description: One line a client can show next to the role in a picker.
@@ -341,19 +367,28 @@ components:
     ErrorCode:
       type: string
       description: |
-        The canonical error codes for this phase, listed with their status and rule in
-        `04-api-spec.md` §1.1. The code also appears as the last segment of a `Problem.type` URI,
-        and directly in per-row results where an operation partially succeeds (§7.3).
+        The canonical error codes, listed with their status and rule in `04-api-spec.md` §1.1.
+        The code also appears as the last segment of a `Problem.type` URI, and directly in
+        per-row results where an operation partially succeeds (§7.3, §7.5).
       enum:
         - validation_failed
+        - unknown_field
         - publish_check_failed
+        - empty_cart
         - unauthenticated
+        - invalid_api_key
+        - customer_auth_required
         - permission_denied
+        - origin_not_allowed
+        - secret_key_in_browser
         - not_found
         - version_conflict
         - duplicate_sku
         - category_in_use
+        - illegal_transition
+        - item_unavailable
         - rate_limited
+        - channel_unavailable
         - internal
 
     ProblemError:
@@ -443,8 +478,8 @@ components:
     Conflict:
       description: |
         `version_conflict` when `If-Match` is stale, `duplicate_sku` when a SKU is already taken
-        within the tenant, or `category_in_use` when deleting a category that has children or
-        products.
+        within the tenant, `category_in_use` when deleting a category that has children or
+        products, or `illegal_transition` when an order status move is not in the allow-list.
       content:
         application/problem+json:
           schema:
@@ -453,8 +488,9 @@ components:
     UnprocessableEntity:
       description: |
         Validation failed. Also returned when a client sends a server-managed field (on create or
-        update, BR-008), or sends `null` on create or on a non-nullable field (BR-009). Omitting a
-        field and sending `null` are not the same thing.
+        update, BR-008), sends `null` on create or on a non-nullable field (BR-009), or sends a
+        field the endpoint does not define (`unknown_field`, BR-089). Omitting a field and
+        sending `null` are not the same thing.
 
         `publish_check_failed` is also a `422`, listing every reason a product can't go active.
       content:
@@ -463,8 +499,12 @@ components:
             $ref: "#/components/schemas/Problem"
 
     TooManyRequests:
-      description: Rate limit exceeded. See the `RateLimit-*` headers.
+      description: Rate limit exceeded. See `Retry-After` and the `RateLimit-*` headers (BR-014).
       headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
         RateLimit-Limit:
           $ref: "#/components/headers/RateLimit-Limit"
         RateLimit-Remaining:

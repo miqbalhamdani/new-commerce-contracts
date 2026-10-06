@@ -1,93 +1,105 @@
-# Fase 1 — Catalog & Foundation · Spesifikasi API
+# Ecommerce Backoffice v2 · API Specification
 
-**Konvensi di §1 berlaku untuk semua fase.** Fase berikutnya merujuk bagian ini, tidak menulisnya
-ulang. Setiap endpoint mencantumkan izin yang dibutuhkan (matriks di §3) dan aturan yang
-ditegakkannya (`BR-xxx`, lihat `02-business-rules.md`). `openapi.yaml` adalah salinan yang terbaca
-mesin; sebuah path muncul di sana saat item backlog yang membangunnya selesai. Untuk apa pun yang
-dijelaskan keduanya, kedua file harus selaras: ubah salah satu, ubah juga yang lain, dalam commit
-yang sama.
+**Two route trees, one contract.** Admin routes live under `/v1` and serve the Next.js admin only.
+Storefront routes live under `/v1/storefront` and are what each owner's own website is built on.
+Every endpoint lists the permission or credential it needs and the rules it enforces (`BR-xxx`,
+see `02-business-rules.md`). Schema is in `03-erd.md`.
+
+`openapi.yaml` is the machine-readable copy. A path appears there when the backlog item that builds
+it is done (`05-backlog.md`). For anything both files describe, they must agree: change one, change
+the other, in the same commit.
 
 ---
 
-## 1. Konvensi
+## 1. Conventions
 
-| Aspek | Aturan |
+| Concern | Rule |
 |---|---|
-| Base | `https://api.{domain}/v1`: versi ada di path; perubahan yang merusak kompatibilitas mendapat `/v2` |
-| Auth (UI) | `Authorization: Bearer <JWT>`, access token 15 menit, refresh berotasi di cookie httpOnly (BR-022) |
-| Auth (integrator) | `Authorization: Bearer <api_key>`, terbatas pada izin key tersebut (BR-028) |
-| Tenant | Diturunkan dari token, **tidak pernah** diterima dari header, query, atau body (BR-003) |
+| Base | `https://api.{domain}/v1`. Version in the path; a breaking change gets `/v2` |
+| Auth (admin) | `Authorization: Bearer <JWT>`, 15-minute access token, rotating refresh in an httpOnly cookie (BR-022). Admin routes accept nothing else |
+| Auth (storefront) | `X-Api-Key: pk_live_…` or `sk_live_…` on every request, plus `Authorization: Bearer <customer token>` or `X-Order-Token` where personal data is involved (§11.1) |
+| Tenant | From the staff token or the API key, **never** from a header, query or body (BR-003) |
 | Content type | `application/json; charset=utf-8` |
-| Penulisan nama | `snake_case` di JSON, sama dengan database, jadi tidak ada lapisan penerjemah yang bisa melenceng |
-| Id | String UUID v7 (BR-005) |
-| Uang | `{"amount": 2000000, "currency": "IDR"}`: integer dalam satuan terkecil (BR-006) |
-| Waktu | RFC 3339 dengan offset, selalu UTC (BR-007) |
-| Field yang dikelola server | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `slug`: mengirim salah satunya menghasilkan `422`, saat create maupun update (BR-008) |
-| Dihilangkan vs `null` | Create: field yang dihilangkan memakai default, `null` menghasilkan `422`. `PATCH`: field yang dihilangkan tidak berubah, `null` mengosongkan field yang nullable (BR-009) |
-| Konkurensi | `If-Match: <version>` pada setiap `PATCH` ke produk, varian, brand, atau kategori, dan pada `PUT` matriks varian; versi basi → `409` (BR-010) |
-| Respons | Setiap field selalu ada; field opsional yang kosong bernilai `null`. Referensi diperluas menjadi `{id, name}` |
-| Koleksi | `{ "data": [...], "next_cursor": "…" }`. `next_cursor` bernilai `null` di halaman terakhir. Koleksi tanpa paginasi tidak menyertakannya. `GET /v1/roles` satu-satunya array polos |
-| Paginasi | Hanya cursor: `?limit=50&cursor=<opaque>`, `limit` 1–200. Tidak ada `offset`: offset yang dalam berarti sequential scan |
-| Pengurutan | `?sort=-created_at` (awalan `-` untuk menurun), daftar yang diizinkan ditentukan per endpoint |
-| Penyaringan | Parameter query eksplisit, bukan query DSL |
-| Hapus | `DELETE` katalog mengarsipkan dan mengembalikan `204` (BR-012) |
+| Casing | `snake_case` in JSON, matching the database, so no translation layer can drift |
+| Ids | UUID strings (BR-005). Storefront products are addressed by `slug`, orders by `order_number` |
+| Money | `{"amount": 2000000, "currency": "IDR"}`, integer minor units (BR-006) |
+| Time | RFC 3339 with offset, always UTC: `2026-10-06T09:15:00Z` (BR-007) |
+| Server-managed fields | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `*_at` audit stamps, brand `slug`: sending one is `422`, on create and update alike (BR-008) |
+| Unknown fields | `422 unknown_field`, never ignored. In particular, any price field on a cart or checkout route (BR-089) |
+| Omitted vs `null` | Create: omitted takes the default, `null` is `422`. `PATCH`: omitted is unchanged, `null` clears a nullable field (BR-009) |
+| Concurrency | `If-Match: <version>` on every `PATCH` to products, variants, brands, categories and orders, and on `PUT` variant-matrix; stale → `409 version_conflict` (BR-010) |
+| Idempotency | No `Idempotency-Key` header. Checkout is idempotent per cart (BR-088); transitions are idempotent because moving to the current status is a no-op (BR-071) |
+| Responses | Every field is always present; an empty optional field is `null`. References expand to `{id, name}` |
+| Collections | `{ "data": [...], "next_cursor": "…" }`; `next_cursor` is `null` on the last page. Unpaginated collections omit it. `GET /v1/roles` is the one bare array |
+| Pagination | Cursor only: `?limit=50&cursor=<opaque>`, `limit` 1–200. No `offset` |
+| Sorting | `?sort=-placed_at` (leading `-` for descending), allow-listed per endpoint |
+| Filtering | Explicit query parameters, not a query DSL |
+| Delete | Catalog `DELETE` archives and returns `204` (BR-012) |
 
-### 1.1 Error
+### 1.1 Errors
 
-Setiap error berbentuk RFC 9457 `application/problem+json` (BR-011):
+Every error is RFC 9457 `application/problem+json` (BR-011):
 
 ```json
 {
-  "type": "https://docs.{domain}/errors/version_conflict",
-  "title": "Version conflict",
+  "type": "https://docs.{domain}/errors/item_unavailable",
+  "title": "Item unavailable",
   "status": 409,
-  "detail": "Product was modified by another user. Reload and retry.",
-  "instance": "/v1/products/01926f3a-…",
+  "detail": "2 items in this cart are no longer sold. Remove them and try again.",
+  "instance": "/v1/storefront/carts/7c1e…/checkout",
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
-  "errors": [{ "field": "version", "expected": 4, "supplied": 3 }]
+  "errors": [
+    { "field": "items", "variant_id": "01926f…", "sku": "TS-BLK-XL",
+      "title": "Erigo Basic Tee — Black / XL" }
+  ]
 }
 ```
 
-Kodenya adalah segmen terakhir `type`. Entri `errors[]` selalu membawa `field`
-dan boleh membawa apa pun yang dibutuhkan kegagalan tersebut.
+The code is the last segment of `type`. Each `errors[]` entry always carries `field` and may carry
+whatever that failure needs.
 
-| Kode | Status | Kapan | BR |
+| Code | Status | When | BR |
 |---|---|---|---|
-| `validation_failed` | 422 | Body rusak, validasi gagal, field yang dikelola server dikirim, `null` di tempat yang tidak boleh, `If-Match` tidak ada | 008, 009 |
-| `publish_check_failed` | 422 | `draft → active` gagal publish check; satu entri `errors[]` per kegagalan | 038 |
-| `unauthenticated` | 401 | Kredensial tidak ada, kedaluwarsa, atau tidak sah; setiap login yang gagal | 021 |
-| `permission_denied` | 403 | `detail` menyebut izin yang dibutuhkan | 024 |
-| `not_found` | 404 | Resource tidak ada di tenant ini, termasuk baris milik tenant lain | 011 |
-| `version_conflict` | 409 | `If-Match` basi | 010 |
-| `duplicate_sku` | 409 | SKU sudah dipakai di tenant ini; `detail` menyebut produk yang memakainya | 039 |
-| `category_in_use` | 409 | Menghapus kategori yang punya anak atau produk | 036 |
-| `rate_limited` | 429 | Melewati batas; lihat header `RateLimit-*` | 014 |
-| `internal` | 500 | Apa pun yang tak terduga. `detail` sengaja generik; `trace_id` adalah petunjuknya | 011 |
+| `validation_failed` | 422 | Bad body, failed validation, server-managed field sent, `null` where not allowed, missing `If-Match` | 008, 009 |
+| `unknown_field` | 422 | A field the endpoint does not define | 089 |
+| `publish_check_failed` | 422 | `draft → active` failed; one `errors[]` entry per failure | 038 |
+| `empty_cart` | 422 | Checkout of a cart with no items | 090 |
+| `unauthenticated` | 401 | Staff credentials missing, expired or invalid; every failed login | 021 |
+| `invalid_api_key` | 401 | `X-Api-Key` missing, unknown or revoked | 085 |
+| `customer_auth_required` | 401 | Customer or order token missing, invalid, expired, or for another tenant | 082, 086 |
+| `permission_denied` | 403 | `detail` names the permission required | 024 |
+| `origin_not_allowed` | 403 | Publishable key from an origin not on its allowlist | 083 |
+| `secret_key_in_browser` | 403 | Secret key on a request carrying `Sec-Fetch-Site` | 084 |
+| `not_found` | 404 | Not in this tenant (or not this customer's), including other tenants' rows | 011 |
+| `version_conflict` | 409 | Stale `If-Match` | 010 |
+| `duplicate_sku` | 409 | SKU already used in this tenant; `detail` names the product | 039 |
+| `category_in_use` | 409 | Deleting a category with children or products | 036 |
+| `illegal_transition` | 409 | Order status move not in the allow-list | 070 |
+| `item_unavailable` | 409 | Checkout of a cart holding variants no longer visible | 090 |
+| `rate_limited` | 429 | Over the limit; `Retry-After` and `RateLimit-*` headers | 014 |
+| `channel_unavailable` | 502 | Marketplace API failed during connect | 102 |
+| `internal` | 500 | Anything unexpected. `detail` is deliberately generic; `trace_id` is the lead | 011 |
 
-### 1.2 Batas laju
+### 1.2 Rate limits
 
-| Pemanggil | Batas |
-|---|---|
-| Sesi UI (JWT) | 600 req/menit/pengguna |
-| API key | 300 req/menit/key, burst 60 |
-
-Header di setiap respons: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` (BR-014).
+Limits per caller are BR-014. Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and
+`RateLimit-Reset`.
 
 ---
 
-## 2. Auth dan identitas
+## 2. Staff auth and identity
 
-| Method | Path | Izin | BR |
+| Method | Path | Permission | BR |
 |---|---|---|---|
-| `POST` | `/v1/auth/login` | tidak ada | 020, 021, 022 |
-| `POST` | `/v1/auth/refresh` | cookie refresh | 022 |
-| `POST` | `/v1/auth/logout` | sudah login | 022 |
-| `POST` | `/v1/auth/accept-invite` | tidak ada (token undangan) | 026 |
-| `GET` | `/v1/me` | sudah login | — |
-| `PATCH` | `/v1/me` | sudah login | 009 |
+| `POST` | `/v1/auth/login` | none | 020, 021, 022 |
+| `POST` | `/v1/auth/refresh` | refresh cookie | 022 |
+| `POST` | `/v1/auth/logout` | signed in | 022 |
+| `POST` | `/v1/auth/accept-invite` | none (invite token) | 026 |
+| `GET` | `/v1/me` | signed in | — |
+| `PATCH` | `/v1/me` | signed in | 009 |
 
-Tenant dibuat oleh tim platform, bukan lewat API ini. Owner lalu menerima undangan seperti
-pengguna lain.
+Tenants are created by the platform team, not through this API. The owner then accepts an
+invitation like anyone else.
 
 ### Login
 
@@ -95,40 +107,38 @@ pengguna lain.
 POST /v1/auth/login
 { "email": "ops@erigo.co.id", "password": "…" }
 
-200 OK   ← refresh token dipasang sebagai cookie httpOnly, Secure, SameSite=Lax
+200 OK   ← refresh token set as an httpOnly, Secure, SameSite=Lax cookie
 { "access_token": "eyJ…", "expires_in": 900,
   "user":   { "id": "0192…", "name": "Budi", "role": "ops",
-              "permissions": ["products:read", "products:write", "…"] },
+              "permissions": ["orders:read", "orders:write", "…"] },
   "tenant": { "id": "0192…", "name": "Erigo", "timezone": "Asia/Jakarta", "currency": "IDR" } }
 ```
 
-Body ini adalah **Session**. `refresh` dan `accept-invite` juga mengembalikannya. Tenant ditentukan
-dari baris pengguna (BR-020): tidak ada parameter tenant, workspace, atau subdomain, dan
-menambahkannya akan merusak kompatibilitas. Pencarian ini satu-satunya pembacaan yang melintasi
-tenant dan berjalan lewat satu fungsi `SECURITY DEFINER` (BR-003). Password salah, email tak
-dikenal, dan akun nonaktif semuanya menghasilkan `401` yang sama (BR-021).
+This body is a **Session**; `refresh` and `accept-invite` return it too. The tenant comes from the
+user row (BR-020): there is no tenant, workspace or subdomain parameter. Wrong password, unknown
+email and disabled account all return the same `401` (BR-021).
 
-### Refresh dan logout
+### Refresh and logout
 
 ```
-POST /v1/auth/refresh      (tanpa body; membaca cookie)  → 200 Session, cookie baru
-POST /v1/auth/logout       (tanpa body; membaca cookie)  → 204, cookie dihapus
+POST /v1/auth/refresh      (no body; reads the cookie)  → 200 Session, new cookie
+POST /v1/auth/logout       (no body; reads the cookie)  → 204, cookie cleared
 ```
 
-Setiap `refresh` merotasi token; memakai ulang token yang sudah dirotasi mencabut seluruh rantainya
-(BR-022). `refresh` tidak butuh autentikasi karena dipanggil *setelah* access token kedaluwarsa.
-`logout` idempoten: panggilan kedua, atau panggilan tanpa cookie, tetap menghasilkan `204`.
+Every `refresh` rotates; reusing a rotated token revokes the whole chain (BR-022). `refresh` needs
+no access token because it is called *after* the access token expires. `logout` is idempotent: a
+second call, or one with no cookie, is still `204`.
 
-### Menerima undangan
+### Accepting an invitation
 
 ```json
 POST /v1/auth/accept-invite
 { "token": "inv_9c2e…", "password": "at-least-8-chars" }
 
-200 OK   ← Session + cookie refresh: pengguna langsung masuk dalam keadaan login
+200 OK   ← Session + refresh cookie: the user is signed in straight away
 ```
 
-Token yang kedaluwarsa atau sudah dipakai menghasilkan `422` pada `token` (BR-026).
+An expired or already-used token is `422` on `token` (BR-026).
 
 ### Me
 
@@ -136,62 +146,65 @@ Token yang kedaluwarsa atau sudah dipakai menghasilkan `422` pada `token` (BR-02
 GET /v1/me
 200 OK
 { "user":   { "id": "0192…", "email": "ops@erigo.co.id", "name": "Budi", "role": "ops",
-              "permissions": ["products:read", "…"] },
+              "permissions": ["orders:read", "…"] },
   "tenant": { "id": "0192…", "name": "Erigo", "timezone": "Asia/Jakarta", "currency": "IDR" } }
 
 PATCH /v1/me
 { "name": "Budi Santoso" }
-200 OK   ← body sama dengan GET /v1/me
+200 OK   ← same body as GET /v1/me
 ```
 
-`name` satu-satunya field yang bisa diubah di sini. Ganti dan reset password tidak ada di fase ini.
+`name` is the only editable field. Staff password change and reset are not in v2.
 
 ---
 
-## 3. Peran dan izin
+## 3. Roles and permissions
 
-Lima peran, di-seed dan tetap (BR-023). Izin berbentuk `resource:action`, dengan action berupa
-`read` atau `write`.
+Four seeded, fixed roles (BR-023). A permission is `resource:action`, with `read` or `write`.
 
-| Izin | `owner` | `admin` | `ops` | `warehouse` | `viewer` |
-|---|:--:|:--:|:--:|:--:|:--:|
-| `products:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `products:write` | ✓ | ✓ | ✓ | | |
-| `variants:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `variants:write` | ✓ | ✓ | ✓ | | |
-| `categories:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `categories:write` | ✓ | ✓ | | | |
-| `brands:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `brands:write` | ✓ | ✓ | | | |
-| `media:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `media:write` | ✓ | ✓ | ✓ | | |
-| `exports:read` | ✓ | ✓ | ✓ | | ✓ |
-| `users:read` | ✓ | ✓ | | | |
-| `users:write` | ✓ | ✓ | | | |
-| `api_keys:read` | ✓ | ✓ | | | |
-| `api_keys:write` | ✓ | ✓ | | | |
-| `settings:read` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `settings:write` | ✓ | | | | |
+| Permission | `owner` | `admin` | `ops` | `viewer` |
+|---|:--:|:--:|:--:|:--:|
+| `products:read` | ✓ | ✓ | ✓ | ✓ |
+| `products:write` | ✓ | ✓ | | |
+| `variants:read` | ✓ | ✓ | ✓ | ✓ |
+| `variants:write` | ✓ | ✓ | | |
+| `categories:read` | ✓ | ✓ | ✓ | ✓ |
+| `categories:write` | ✓ | ✓ | | |
+| `brands:read` | ✓ | ✓ | ✓ | ✓ |
+| `brands:write` | ✓ | ✓ | | |
+| `media:read` | ✓ | ✓ | ✓ | ✓ |
+| `media:write` | ✓ | ✓ | | |
+| `orders:read` | ✓ | ✓ | ✓ | ✓ |
+| `orders:write` | ✓ | ✓ | ✓ | |
+| `customers:read` | ✓ | ✓ | ✓ | ✓ |
+| `exports:read` | ✓ | ✓ | ✓ | ✓ |
+| `channels:read` | ✓ | ✓ | | ✓ |
+| `channels:write` | ✓ | ✓ | | |
+| `users:read` | ✓ | ✓ | | |
+| `users:write` | ✓ | ✓ | | |
+| `api_keys:read` | ✓ | ✓ | | |
+| `api_keys:write` | ✓ | ✓ | | |
+| `audit_log:read` | ✓ | ✓ | | |
+| `settings:read` | ✓ | ✓ | ✓ | ✓ |
+| `settings:write` | ✓ | | | |
 
-**`owner` adalah `admin` ditambah `settings:write`, tidak lebih.** Owner memberi akses kepada
-merchandiser "tanpa menyerahkan urusan tagihan" (`01-product-requirements.md` §5.5), jadi batas antara kedua
-peran adalah pengaturan tenant itu sendiri.
+- **`owner` is `admin` plus `settings:write`, nothing more.** Settings hold the tenant itself and,
+  later, billing.
+- **`ops` works orders and customers and reads the catalog.** v2 makes `ops` read-only on products
+  (in v1 it could write them); catalog editing belongs to owner and admin.
+- **`orders:write` covers every transition**, manual entry and refund recording. There is no
+  separate `orders:cancel`.
+- **There is no `customers:write`.** Staff never create customer accounts or touch credentials
+  (BR-092).
 
-**`ops` membaca kategori dan brand tetapi tidak menulisnya.** Editor produk perlu membacanya untuk
-memasang produk; menata ulang pohon kategori adalah tugas pengelola kategori, yang menjadi milik
-Admin.
-
-**`warehouse` membaca katalog dan tidak mengubah apa pun.** Peran ini ada supaya sudah tersedia
-sebelum Fase 4 memberinya stok.
-
-`403` menyebut izin yang dibutuhkan di `detail` (BR-024). Klien tidak merender apa yang tidak bisa
-dilakukan pengguna (BR-025).
+`403` names the required permission in `detail` (BR-024). The client does not render what the user
+cannot do (BR-025).
 
 ---
 
-## 4. Pengaturan, pengguna, dan API key
+## 4. Settings, users, API keys, audit log
 
-| Method | Path | Izin | BR |
+| Method | Path | Permission | BR |
 |---|---|---|---|
 | `GET` | `/v1/settings` | `settings:read` | 029 |
 | `PATCH` | `/v1/settings` | `settings:write` | 009, 029 |
@@ -202,25 +215,28 @@ dilakukan pengguna (BR-025).
 | `PATCH` | `/v1/users/{id}` | `users:write` | 023, 027 |
 | `DELETE` | `/v1/users/{id}` | `users:write` | 027 |
 | `GET` | `/v1/api-keys` | `api_keys:read` | 028 |
-| `POST` | `/v1/api-keys` | `api_keys:write` | 028 |
-| `DELETE` | `/v1/api-keys/{id}` | `api_keys:write` | 028 |
+| `POST` | `/v1/api-keys` | `api_keys:write` | 028, 083 |
+| `PATCH` | `/v1/api-keys/{id}` | `api_keys:write` | 028 |
+| `DELETE` | `/v1/api-keys/{id}` | `api_keys:write` | 028, 085 |
+| `GET` | `/v1/audit-log?subject_type=&subject_id=&actor_id=&from=&to=&limit=&cursor=` | `audit_log:read` | 018 |
 
-### Pengaturan
+### Settings
 
 ```json
 GET /v1/settings
 200 OK
-{ "id": "0192…", "name": "Erigo", "slug": "erigo",
+{ "id": "0192…", "name": "Erigo", "slug": "erigo", "order_prefix": "ERG",
   "timezone": "Asia/Jakarta", "currency": "IDR", "status": "active" }
 
 PATCH /v1/settings
 { "name": "Erigo Apparel", "timezone": "Asia/Makassar" }
-200 OK   ← body sama dengan GET
+200 OK   ← same body as GET
 ```
 
-Hanya `name` dan `timezone` yang bisa diubah. `currency` tetap di Fase 1.
+`name`, `timezone` and `order_prefix` are editable; a new prefix applies to new orders only.
+`currency` is fixed (BR-029).
 
-### Peran
+### Roles
 
 ```json
 GET /v1/roles
@@ -230,109 +246,265 @@ GET /v1/roles
   … ]
 ```
 
-Respons ini konstan: klien merender pemilih peran dari respons ini, bukan meng-hardcode §3.
+Constant. The client renders the role picker from it instead of hardcoding §3.
 
-### Pengguna
+### Users
 
 ```json
 GET /v1/users?status=invited
 200 OK
 { "data": [
     { "id": "0192…", "email": "rina@erigo.co.id", "name": "Rina", "role": "ops",
-      "status": "invited", "last_login_at": null, "created_at": "2026-08-27T09:15:00Z" } ],
+      "status": "invited", "last_login_at": null, "created_at": "2026-10-06T09:15:00Z" } ],
   "next_cursor": null }
 
 POST /v1/users/invite
 { "email": "rina@erigo.co.id", "name": "Rina", "role": "ops" }
-201 Created   ← User seperti di atas; email undangan dikirim
+201 Created   ← User as above; invitation email sent
 
 POST /v1/users/{id}/resend-invite
-204 No Content   ← hanya selama status invited; selain itu 422
+204 No Content   ← only while invited; otherwise 422
 
 PATCH /v1/users/{id}
-{ "role": "admin" }                 atau   { "status": "active" }
+{ "role": "admin" }                 or   { "status": "active" }
 200 OK   ← User
 
 DELETE /v1/users/{id}
-204 No Content   ← menyetel status disabled; barisnya tidak pernah dihapus
+204 No Content   ← sets status disabled; the row is never deleted
 ```
 
-- Email yang sudah dipakai di tenant mana pun menghasilkan `422` pada `email` (BR-020).
-- Hanya owner yang bisa memberikan peran `owner` (BR-023).
-- Owner aktif terakhir milik tenant tidak bisa diturunkan perannya atau dinonaktifkan (BR-027).
-- `PATCH` menerima `role` dan `status` (`active` mengaktifkan lagi pengguna yang nonaktif) dan tidak
-  butuh `If-Match` (BR-010).
+- An email already used in any tenant is `422` on `email` (BR-020).
+- Only an owner can grant `owner` (BR-023).
+- The last active owner cannot be demoted or disabled (BR-027).
+- `PATCH` takes `role` and `status` (`active` re-enables a disabled user), without `If-Match`.
 
-### API key
+### API keys
 
 ```json
 POST /v1/api-keys
-{ "name": "Warehouse scanner app",
-  "permissions": ["products:read", "categories:read"] }
+{ "name": "Main website", "kind": "publishable",
+  "allowed_origins": ["https://tokoabc.com", "https://www.tokoabc.com"] }
 
 201 Created
-{ "id": "0192…", "name": "Warehouse scanner app", "key_prefix": "bk_live_7f3a",
-  "secret": "bk_live_7f3a91c2e8…",          ← ditampilkan tepat sekali, tidak bisa diambil lagi
-  "permissions": ["products:read", "categories:read"],
+{ "id": "0192…", "name": "Main website", "kind": "publishable", "prefix": "pk_live_3f9a",
+  "key": "pk_live_3f9a91c2e8…",           ← shown exactly once; never retrievable again
+  "allowed_origins": ["https://tokoabc.com", "https://www.tokoabc.com"],
   "created_by": { "id": "0192…", "name": "Budi" },
-  "last_used_at": null, "created_at": "2026-08-27T09:15:00Z" }
+  "last_used_at": null, "revoked_at": null, "created_at": "2026-10-06T09:15:00Z" }
 
 GET /v1/api-keys
 200 OK
-{ "data": [ …bentuk sama tanpa "secret"… ] }    ← tanpa paginasi; key yang dicabut tidak ditampilkan
+{ "data": [ …same shape without "key"… ] }    ← unpaginated; revoked keys are not listed
+
+PATCH /v1/api-keys/{id}
+{ "allowed_origins": ["https://tokoabc.com", "https://staging.tokoabc.com"] }
+200 OK   ← ApiKey without "key"
 
 DELETE /v1/api-keys/{id}
-204 No Content   ← mencabut; berlaku pada request berikutnya dari key itu
+204 No Content   ← revokes; stops working within 60 s (BR-085)
 ```
 
-Izin sebuah key harus merupakan bagian dari izin pembuatnya; selain itu menghasilkan `422` pada
-`permissions` (BR-028).
+- A publishable key needs at least one origin; each origin is exact `scheme://host[:port]`, no
+  path, no wildcard. A secret key's `allowed_origins` must be empty (BR-028, BR-083).
+- `kind` cannot be changed by `PATCH`; revoke and issue a new key instead.
+
+### Audit log
+
+```json
+GET /v1/audit-log?subject_type=order&subject_id=0192…
+200 OK
+{ "data": [
+    { "id": "8812", "action": "order.transition",
+      "actor": { "id": "0192…", "name": "Budi" },
+      "subject_type": "order", "subject_id": "0192…",
+      "before": { "status": "paid" }, "after": { "status": "processing" },
+      "ip": "203.0.113.7", "created_at": "2026-10-06T09:15:00Z" } ],
+  "next_cursor": null }
+```
+
+`actor` is `null` for system actions (import worker, retention job). Newest first.
 
 ---
 
-## 5. Brand
+## 5. Orders and customers (M1)
 
-| Method | Path | Izin | BR |
+| Method | Path | Permission | BR |
+|---|---|---|---|
+| `GET` | `/v1/orders?status=&source=&customer_id=&refund_owed=&placed_from=&placed_to=&q=&sort=&limit=&cursor=` | `orders:read` | 075 |
+| `POST` | `/v1/orders` | `orders:write` | 076, 077, 078 |
+| `GET` | `/v1/orders/{id}` | `orders:read` | — |
+| `PATCH` | `/v1/orders/{id}` | `orders:write` | 009, 010, 079 |
+| `POST` | `/v1/orders/{id}/mark-paid` | `orders:write` | 070, 071, 073, 074 |
+| `POST` | `/v1/orders/{id}/process` | `orders:write` | 070, 071, 073 |
+| `POST` | `/v1/orders/{id}/ship` | `orders:write` | 070, 071, 072, 073 |
+| `POST` | `/v1/orders/{id}/complete` | `orders:write` | 070, 071, 073 |
+| `POST` | `/v1/orders/{id}/cancel` | `orders:write` | 070, 071, 073 |
+| `POST` | `/v1/orders/{id}/refund` | `orders:write` | 075 |
+| `POST` | `/v1/orders/export` | `exports:read` | 060, 063, 064, 065 |
+| `GET` | `/v1/customers?q=&limit=&cursor=` | `customers:read` | 092 |
+| `GET` | `/v1/customers/{id}` | `customers:read` | 092 |
+
+### 5.1 Order list
+
+```json
+GET /v1/orders?status=paid&status=processing&sort=-placed_at
+200 OK
+{ "data": [
+    { "id": "0192…", "order_number": "ERG-000123", "source": "storefront",
+      "status": "paid", "version": 2,
+      "customer": { "name": "Rina", "email": "rina@example.com", "phone": "+6281234567890" },
+      "item_count": 2,
+      "total": { "amount": 39800000, "currency": "IDR" },
+      "placed_at": "2026-10-06T09:15:00Z", "paid_at": "2026-10-06T10:02:00Z",
+      "refunded_at": null } ],
+  "next_cursor": "eyJ…" }
+```
+
+- `status` repeats to OR values. The admin's saved views are plain filters:
+  **To confirm payment** `status=pending` · **To ship** `status=paid&status=processing` ·
+  **Shipped** `status=shipped` · **Cancelled, refund owed** `refund_owed=true` (BR-075).
+- `q` matches `order_number`, customer name, email and phone.
+- `sort` accepts `-placed_at` (default) and `placed_at`.
+- p95 first byte under 800 ms with 10,000 orders in the tenant.
+
+### 5.2 Order detail and edit
+
+```json
+GET /v1/orders/{id}
+200 OK
+{ "id": "0192…", "order_number": "ERG-000123", "source": "storefront", "status": "processing",
+  "version": 3,
+  "customer_id": "0192…",                              ← null for guest and manual orders
+  "customer": { "name": "Rina", "email": "rina@example.com", "phone": "+6281234567890" },
+  "shipping_address": { "line1": "Jl. Melati 12", "line2": null, "city": "Bandung",
+                        "province": "Jawa Barat", "postal_code": "40115" },
+  "note": "Tolong dibungkus kado",
+  "lines": [
+    { "id": "0192…", "variant_id": "0192…", "sku": "TS-BLK-M",
+      "title": "Erigo Basic Tee — Black / M", "qty": 2,
+      "unit_price": { "amount": 19900000, "currency": "IDR" },
+      "discount": { "amount": 0, "currency": "IDR" } } ],
+  "subtotal": { "amount": 39800000, "currency": "IDR" },
+  "shipping": { "amount": 0, "currency": "IDR" },
+  "discount": { "amount": 0, "currency": "IDR" },
+  "total":    { "amount": 39800000, "currency": "IDR" },
+  "courier": null, "tracking_number": null,
+  "placed_at": "…", "paid_at": "…", "shipped_at": null, "completed_at": null,
+  "cancelled_at": null, "refunded_at": null,
+  "allowed_transitions": ["shipped", "cancelled"] }
+
+PATCH /v1/orders/{id}          If-Match: 3
+{ "shipping_address": { … }, "note": "…", "shipping": { "amount": 1500000 } }
+200 OK   ← Order, version 4; totals recomputed
+```
+
+`PATCH` accepts only `shipping_address`, `note` and `shipping`, and only while `pending`; otherwise
+`422` (BR-079). `allowed_transitions` comes from the allow-list so the client never hardcodes it.
+
+### 5.3 Transitions
+
+Every status route calls the one Transition function (BR-071). None takes `If-Match`: the row lock
+and the allow-list are the concurrency control, and the no-op makes repeats harmless.
+
+```
+POST /v1/orders/{id}/mark-paid                                → 200 Order
+POST /v1/orders/{id}/process                                  → 200 Order
+POST /v1/orders/{id}/ship      {"courier": "jne", "tracking_number": "JNE0123456789"}  → 200 Order
+POST /v1/orders/{id}/complete                                 → 200 Order
+POST /v1/orders/{id}/cancel    {"reason": "Customer asked"}   → 200 Order   (reason optional, audited)
+POST /v1/orders/{id}/refund    {"note": "BCA transfer 6 Oct"} → 200 Order   (sets refunded_at)
+```
+
+- A move not in the allow-list is `409 illegal_transition` naming from and to; nothing changes.
+- Moving to the current status is `200` with the unchanged order.
+- `ship` without `courier` or `tracking_number` is `422` (BR-072). `courier` is one of `jne`, `jnt`,
+  `sicepat`, `anteraja`, `pos`, `other`.
+- `refund` on an order that is not cancelled, was never paid, or is already refunded is `422`
+  (BR-075).
+
+### 5.4 Manual order entry
+
+```json
+POST /v1/orders
+{ "source": "manual",
+  "customer": { "name": "Dewi", "email": null, "phone": "+6281299990000" },
+  "shipping_address": { "line1": "Jl. Kenanga 4", "city": "Surabaya",
+                        "province": "Jawa Timur", "postal_code": "60231" },
+  "lines": [ { "variant_id": "0192…", "qty": 1, "discount": { "amount": 2000000 } } ],
+  "shipping": { "amount": 1500000 },
+  "note": "Order via WhatsApp" }
+
+201 Created   ← Order, status pending
+```
+
+Line prices come from the catalog exactly as checkout does (BR-078); a `unit_price` in the request
+is `422 unknown_field`. Archived variants are `422` naming the line. `source` must be `manual`.
+
+### 5.5 Customers
+
+```json
+GET /v1/customers?q=rina
+200 OK
+{ "data": [ { "id": "0192…", "name": "Rina", "email": "rina@example.com",
+              "phone": "+6281234567890", "order_count": 3,
+              "created_at": "2026-10-06T09:15:00Z" } ],
+  "next_cursor": null }
+
+GET /v1/customers/{id}
+200 OK   ← Customer + "orders": [ …order list rows, newest first, up to 50… ]
+```
+
+Read-only. No password hash, session or token ever appears (BR-092).
+
+### 5.6 Order export
+
+```json
+POST /v1/orders/export
+{ "status": ["completed"], "placed_from": "2026-09-01T00:00:00+07:00",
+  "placed_to": "2026-10-01T00:00:00+07:00" }
+
+202 Accepted
+{ "job_id": "0192…" }
+```
+
+Filters match §5.1. One CSV row per order line (BR-065). Poll `GET /v1/jobs/{id}` (§9).
+
+---
+
+## 6. Brands and categories (M2)
+
+| Method | Path | Permission | BR |
 |---|---|---|---|
 | `GET` | `/v1/brands?q=&archived=false&limit=&cursor=` | `brands:read` | — |
 | `POST` | `/v1/brands` | `brands:write` | 030 |
 | `GET` | `/v1/brands/{id}` | `brands:read` | — |
 | `PATCH` | `/v1/brands/{id}` | `brands:write` | 010, 030 |
 | `DELETE` | `/v1/brands/{id}` | `brands:write` | 012 |
-
-```json
-POST /v1/brands
-{ "name": "Erigo",
-  "channel_brand_ids": { "shopee": "12345", "tokopedia": "998" } }
-
-201 Created
-{ "id": "0192…", "version": 1, "name": "Erigo", "slug": "erigo",
-  "channel_brand_ids": { "shopee": "12345", "tokopedia": "998" },
-  "archived_at": null,
-  "created_at": "2026-08-27T09:15:00Z", "updated_at": "2026-08-27T09:15:00Z" }
-
-PATCH /v1/brands/{id}          If-Match: 1
-{ "channel_brand_ids": { "shopee": "12345", "tokopedia": "998", "tiktok": "abc" } }
-200 OK   ← Brand, versi 2
-```
-
-- `slug` diturunkan dari `name`, termasuk saat ganti nama.
-- Nama yang slug-nya sama dengan slug brand lain, termasuk brand yang diarsipkan, menghasilkan `422`
-  pada `name` (BR-030).
-- `channel_brand_ids` diganti sebagai satu objek utuh.
-- Daftar `GET` diurutkan menurut `name`; `q` mencocokkan nama.
-
----
-
-## 6. Kategori
-
-| Method | Path | Izin | BR |
-|---|---|---|---|
 | `GET` | `/v1/categories?kind=&parent_id=&depth=` | `categories:read` | 031 |
 | `GET` | `/v1/categories/{id}` | `categories:read` | 033 |
 | `POST` | `/v1/categories` | `categories:write` | 031, 032, 035 |
 | `PATCH` | `/v1/categories/{id}` | `categories:write` | 010, 032, 033, 034, 035 |
 | `DELETE` | `/v1/categories/{id}` | `categories:write` | 012, 036 |
+
+### 6.1 Brands
+
+```json
+POST /v1/brands
+{ "name": "Erigo" }
+
+201 Created
+{ "id": "0192…", "version": 1, "name": "Erigo", "slug": "erigo", "archived_at": null,
+  "created_at": "2026-10-06T09:15:00Z", "updated_at": "2026-10-06T09:15:00Z" }
+
+PATCH /v1/brands/{id}          If-Match: 1
+{ "name": "Erigo Apparel" }
+200 OK   ← Brand, version 2, slug re-derived
+```
+
+A name whose slug matches another brand's, archived ones included, is `422` on `name` (BR-030).
+The list is sorted by `name`; `q` matches the name.
+
+### 6.2 Categories
 
 ```json
 POST /v1/categories
@@ -341,16 +513,15 @@ POST /v1/categories
 201 Created
 { "id": "0192…", "version": 1, "kind": "category", "name": "Jackets",
   "parent_id": "0192-outerwear", "path": "apparel.outerwear.jackets",
-  "archived_at": null,
-  "created_at": "2026-08-27T09:15:00Z", "updated_at": "2026-08-27T09:15:00Z" }
+  "archived_at": null, "created_at": "…", "updated_at": "…" }
 
 GET /v1/categories/{id}
-200 OK   ← Category ditambah jumlah yang dibutuhkan dialog pindah:
-{ …, "descendant_count": 4, "product_count": 128 }      ← product_count mencakup seluruh subtree
+200 OK   ← Category plus the counts the move dialog needs:
+{ …, "descendant_count": 4, "product_count": 128 }      ← product_count spans the subtree
 
 PATCH /v1/categories/{id}      If-Match: 1
-{ "parent_id": "0192-technical-outerwear" }      atau   { "name": "Jackets & Coats" }
-200 OK   ← Category dengan path barunya
+{ "parent_id": "0192-technical-outerwear" }      or   { "name": "Jackets & Coats" }
+200 OK   ← Category with its new path
 
 DELETE /v1/categories/{id}
 204 No Content
@@ -358,81 +529,79 @@ DELETE /v1/categories/{id}
 { …, "errors": [ { "field": "children", "count": 4 }, { "field": "products", "count": 128 } ] }
 ```
 
-- **`path` hanya-baca.** Database yang menurunkannya; mengirimnya menghasilkan `422` (BR-008,
-  BR-032).
-- Ganti nama atau pindah menulis ulang `path` setiap turunannya dalam satu statement dan tidak
-  menyentuh penempatan produk (BR-033).
-- Memindahkan kategori ke bawah turunannya sendiri menghasilkan `422` pada `parent_id` (BR-034).
-- `parent_id: null` pada `PATCH` menjadikan kategori itu root.
-- **Daftar.** Tanpa paginasi, datar, diurutkan menurut `kind` lalu `path`; klien menyusun pohon dari
-  `parent_id`.
-  - `kind` membatasi daftar ke satu pohon.
-  - `parent_id` mulai dari anak-anak node itu; bila dihilangkan, mulai dari root.
-  - `depth=1` hanya mengembalikan satu tingkat, untuk lazy-loading pohon yang besar.
+- **`path` is read-only.** The database derives it; sending it is `422` (BR-008, BR-032).
+- A rename or move rewrites every descendant's `path` in one statement and leaves product
+  assignments alone (BR-033).
+- Moving a category beneath its own descendant is `422` on `parent_id` (BR-034).
+- `parent_id: null` on `PATCH` makes the category a root.
+- **List.** Unpaginated, flat, sorted by `kind` then `path`; the client builds the tree from
+  `parent_id`. `kind` limits to one tree, `parent_id` starts below that node, `depth=1` returns one
+  level for lazy-loading large trees.
 
 ---
 
-## 7. Produk dan varian
+## 7. Products and variants (M2)
 
-| Method | Path | Izin | BR |
+| Method | Path | Permission | BR |
 |---|---|---|---|
 | `GET` | `/v1/products?status=&brand_id=&category_id=&q=&sort=&limit=&cursor=` | `products:read` | — |
-| `POST` | `/v1/products` | `products:write` | 009, 037 |
+| `POST` | `/v1/products` | `products:write` | 009, 037, 042 |
 | `GET` | `/v1/products/{id}` | `products:read` | — |
-| `PATCH` | `/v1/products/{id}` | `products:write` | 009, 010, 037, 038 |
-| `DELETE` | `/v1/products/{id}` | `products:write` | 012 |
+| `PATCH` | `/v1/products/{id}` | `products:write` | 009, 010, 037, 038, 042 |
+| `DELETE` | `/v1/products/{id}` | `products:write` | 012, 045 |
 | `GET` | `/v1/products/{id}/variants?archived=false` | `variants:read` | — |
 | `POST` | `/v1/products/{id}/variants` | `variants:write` | 039, 040 |
 | `PATCH` | `/v1/variants/{id}` | `variants:write` | 009, 010, 039 |
-| `DELETE` | `/v1/variants/{id}` | `variants:write` | 012 |
+| `DELETE` | `/v1/variants/{id}` | `variants:write` | 012, 045 |
 | `PUT` | `/v1/products/{id}/variant-matrix` | `variants:write` | 010, 039, 040, 041 |
+| `POST` | `/v1/products/bulk` | `products:write` + `variants:write` | 039, 043 |
+| `POST` | `/v1/products/import` | `products:write` + `variants:write` | 044, 060 |
 
-### 7.1 Produk
+### 7.1 Products
 
 ```json
 POST /v1/products
 { "title": "Erigo Basic Tee",
   "brand_id": "0192a1c4-…",
-  "category_ids": ["0192-jackets", "0192-hiking"],
+  "category_ids": ["0192-tees", "0192-ss26"],
   "attributes": { "material": "Cotton Combed 30s" } }
 ```
 
-Hanya yang diisi pengguna: `status` dan `version` **tidak ada**, bukan `null`.
+Only what the user supplied: `status`, `slug` and `version` are **absent**, not `null`.
 
 ```json
 201 Created
 { "id": "0192b7f0-…",
-  "version": 1,                                       ← diisi server
+  "version": 1,                                       ← server-assigned
   "title": "Erigo Basic Tee",
+  "slug": "erigo-basic-tee",                          ← derived from title (BR-042)
   "description": null,
-  "status": "draft",                                  ← default diterapkan
-  "brand": { "id": "0192a1c4-…", "name": "Erigo" },   ← diperluas saat dibaca
-  "categories": [ { "id": "0192-jackets", "kind": "category", "name": "Jackets",
-                    "path": "apparel.outerwear.jackets" }, … ],
+  "status": "draft",                                  ← default applied
+  "brand": { "id": "0192a1c4-…", "name": "Erigo" },   ← expanded on read
+  "categories": [ { "id": "0192-tees", "kind": "category", "name": "Tees",
+                    "path": "apparel.tees" }, … ],
   "attributes": { "material": "Cotton Combed 30s" },
   "option_names": [],
   "variant_count": 0,
-  "media": [],                                        ← objek Media, urut position (§8)
+  "media": [],                                        ← Media objects in position order (§8)
   "archived_at": null,
-  "created_at": "2026-08-27T09:15:00Z", "updated_at": "2026-08-27T09:15:00Z" }
+  "created_at": "2026-10-06T09:15:00Z", "updated_at": "2026-10-06T09:15:00Z" }
 ```
 
-`GET /v1/products/{id}` mengembalikan body yang sama.
+`GET /v1/products/{id}` returns the same body.
 
 ```json
 PATCH /v1/products/{id}        If-Match: 1
-{ "description": "Kaos basic 30s", "brand_id": null, "status": "active" }
-200 OK   ← Product, versi 2
+{ "description": "Kaos basic 30s", "slug": "basic-tee", "status": "active" }
+200 OK   ← Product, version 2
 ```
 
-- **Versi.** Dibawa di `If-Match`, tidak pernah di body; server yang menaikkannya.
-- **Mengosongkan.** `null` mengosongkan `description` atau `brand_id` (BR-009).
-- **Diganti utuh.** `category_ids` mengganti semua penempatan; `attributes` mengganti seluruh
-  objek.
-- **`option_names`** hanya berubah lewat matriks varian (§7.3); mengirimnya di sini menghasilkan
-  `422`.
-- **Status.** `"status": "active"` menjalankan publish check (BR-038) dan `"draft"` membatalkan
-  publikasi. `DELETE` mengarsipkan.
+- **Slug.** Editable; must be lower-case `a-z0-9-` and unique in the tenant, archived products
+  included, else `422` on `slug`. Changing `title` never changes `slug` (BR-042).
+- **Clearing.** `null` clears `description` or `brand_id` (BR-009).
+- **Replaced whole.** `category_ids` replaces all assignments; `attributes` replaces the object.
+- **`option_names`** changes only through the variant matrix (§7.3); sending it here is `422`.
+- **Status.** `"active"` runs the publish check (BR-038); `"draft"` unpublishes; `DELETE` archives.
 
 ```json
 422 publish_check_failed
@@ -443,28 +612,29 @@ PATCH /v1/products/{id}        If-Match: 1
     { "field": "categories", "detail": "At least one category of kind category is required" } ] }
 ```
 
-**Daftar.**
+**List.**
 
 ```json
 GET /v1/products?status=active&category_id=0192-apparel&q=tee&sort=-updated_at
 200 OK
 { "data": [
-    { "id": "0192…", "version": 3, "title": "Erigo Basic Tee", "status": "active",
-      "brand": { "id": "0192…", "name": "Erigo" },
+    { "id": "0192…", "version": 3, "title": "Erigo Basic Tee", "slug": "erigo-basic-tee",
+      "status": "active", "brand": { "id": "0192…", "name": "Erigo" },
       "variant_count": 10,
       "price_min": { "amount": 19900000, "currency": "IDR" },
       "price_max": { "amount": 21900000, "currency": "IDR" },
-      "cover_url": "https://…/200.webp",              ← turunan 200px dari gambar pertama, atau null
-      "updated_at": "2026-08-27T09:15:00Z" } ],
+      "cover_url": "https://img.{domain}/…/200.webp",
+      "updated_at": "2026-10-06T09:15:00Z" } ],
   "next_cursor": "eyJ…" }
 ```
 
-- `category_id` mencocokkan kategori itu **beserta turunannya**.
-- `q` adalah pencocokan trigram pada `title`.
-- `sort` menerima `-created_at` (default), `-updated_at`, atau `title`.
-- Produk yang diarsipkan hanya muncul dengan `status=archived`.
+- `category_id` matches that category **and its descendants**.
+- `q` is a trigram match on `title`; an exact SKU also matches.
+- `sort` accepts `-created_at` (default), `-updated_at` or `title`.
+- Archived products appear only with `status=archived`.
+- p95 under 600 ms with 10k products.
 
-### 7.2 Varian
+### 7.2 Variants
 
 ```json
 POST /v1/products/{id}/variants
@@ -474,37 +644,31 @@ POST /v1/products/{id}/variants
 201 Created
 { "id": "0192…", "product_id": "0192b7f0-…", "version": 1,
   "option_values": ["Black", "S"], "sku": "TS-BLK-S", "barcode": null,
-  "price": { "amount": 19900000, "currency": "IDR" },   ← currency default dari tenant
+  "price": { "amount": 19900000, "currency": "IDR" },   ← currency from the tenant
   "compare_at_price": null, "weight_grams": 200,
-  "archived_at": null,
-  "created_at": "2026-08-27T09:15:00Z", "updated_at": "2026-08-27T09:15:00Z" }
+  "archived_at": null, "created_at": "…", "updated_at": "…" }
 
 PATCH /v1/variants/{id}        If-Match: 1
 { "barcode": "8991234567890", "compare_at_price": null }
-200 OK   ← Variant, versi 2
+200 OK   ← Variant, version 2
 
 GET /v1/products/{id}/variants
 200 OK
-{ "data": [ …Variant… ] }      ← tanpa paginasi, urut option_values
+{ "data": [ …Variant… ] }      ← unpaginated, ordered by option_values
 ```
 
-- `option_values` harus punya satu entri untuk setiap entri `option_names` dan unik di antara varian
-  hidup milik produk itu (BR-040). Nilainya hanya berubah lewat matriks.
-- SKU yang bentrok menghasilkan `409 duplicate_sku` (BR-039).
+- `option_values` has one entry per `option_names` entry and is unique among the product's live
+  variants (BR-040). It changes only through the matrix.
+- A clashing SKU is `409 duplicate_sku` (BR-039).
 
-### 7.3 Matriks varian
+### 7.3 Variant matrix
 
-`PUT /v1/products/{id}/variant-matrix` menyimpan seluruh grid opsi dalam **satu request** (BR-041).
-
-Masalah yang diselesaikannya: seorang merchandiser membuka grid, menempelkan harga dari Excel,
-menghapus satu varian warna, dan menambah satu ukuran. Tanpa endpoint ini, front end harus menghitung
-selisih grid sendiri dan mengirim 25 request terpisah, tanpa transaksi dan tanpa jaminan urutan.
-Kegagalan sebagian akan meninggalkan grid dalam keadaan yang tidak dipahami pengguna maupun sistem.
-
-Endpoint ini **deklaratif** ("beginilah seharusnya grid ini") dan server yang menghitung selisihnya.
+`PUT /v1/products/{id}/variant-matrix` saves the whole option grid in **one request** (BR-041).
+It is declarative ("this is what the grid should be"); the server computes the diff. Erigo's
+five-size styles are one request, not five.
 
 ```json
-PUT /v1/products/{id}/variant-matrix      If-Match: 3      ← versi PRODUK
+PUT /v1/products/{id}/variant-matrix      If-Match: 3      ← the PRODUCT's version
 { "option_names": ["Colour", "Size"],
   "rows": [
     { "option_values": ["Black","S"], "sku": "TS-BLK-S",
@@ -529,153 +693,535 @@ PUT /v1/products/{id}/variant-matrix      If-Match: 3      ← versi PRODUK
       "code": "duplicate_sku", "detail": "SKU TS-WHT-S is used by Erigo Oversize Tee" } ] }
 ```
 
-- **Pencocokan.** Baris dicocokkan dengan varian hidup milik produk menurut `option_values`. Baris
-  yang cocok dengan varian yang diarsipkan akan memulihkannya, jadi varian warna yang ditambahkan
-  lagi tetap memakai SKU-nya.
-- **Satu baris buruk gagal sendirian.** Baris lain tetap tersimpan, dan setiap baris mendapat hasil
-  (BR-041). Responsnya tetap `200` meski ada baris yang gagal.
-- **`archive_missing`.**
-  - `true` mengarsipkan varian hidup yang tidak dikirim.
-  - `false` menambal sebagian grid tanpa mengarsipkan apa pun; editor memakainya untuk tampilan
-    yang difilter.
-  - Mengubah `option_names` dengan `archive_missing: false` menghasilkan `422`: varian berbentuk
-    lama tidak bisa bertahan.
-- **Error tingkat request.** Baris yang `option_values`-nya tidak cocok dengan `option_names`
-  membuat seluruh request `422` sebelum apa pun ditulis. Begitu juga baris duplikat dan sumbu Colour
-  yang tidak berada di posisi 0 (BR-040).
-- **Konkurensi.** `version` produk menjaga matriks, dan penyimpanan yang berhasil menaikkannya.
+- **Matching.** Rows match the product's live variants by `option_values`. A row matching an
+  archived variant restores it, so a colourway added back keeps its SKU.
+- **One bad row fails alone.** The rest save and every row gets a result; the response is `200`
+  even when some rows fail (BR-041).
+- **`archive_missing`.** `true` archives live variants not sent; `false` patches part of the grid
+  and archives nothing (the editor uses it for filtered views). Changing `option_names` with
+  `archive_missing: false` is `422`.
+- **Request-level errors.** A row whose `option_values` does not fit `option_names`, a duplicate
+  row, or a Colour axis not at position 0 makes the whole request `422` before anything is written
+  (BR-040).
+- 100 cells save in under 2 s.
 
-### 7.4 Matriks versus `PATCH /v1/variants/{id}`
-
-Tugasnya berbeda. Jangan pakai yang satu untuk yang lain.
+### 7.4 Matrix versus `PATCH /v1/variants/{id}`
 
 | | `variant-matrix` | `PATCH /variants/{id}` |
 |---|---|---|
-| Cakupan | Semua varian produk | Tepat satu |
-| Bisa membuat | Ya | Tidak |
-| Bisa mengarsipkan | Ya | Tidak |
-| Mengubah bentuk grid | Ya | Tidak |
-| Pemanggil biasa | Tombol Save di editor matriks | Drawer detail varian |
-| Konkurensi | `If-Match` pada produk | `If-Match` pada varian itu |
+| Scope | Every variant of a product | Exactly one |
+| Can create / archive / reshape the grid | Yes | No |
+| Usual caller | Save in the matrix editor | Variant detail drawer |
+| Concurrency | `If-Match` on the product | `If-Match` on that variant |
 
-Orang yang memperbaiki satu barcode memakai `PATCH`. Mengirim `PUT` seluruh grid untuk itu akan
-menimpa suntingan merchandiser yang berjalan bersamaan.
+Someone fixing one barcode uses `PATCH`. A whole-grid `PUT` for that would overwrite a
+merchandiser's concurrent edits.
+
+### 7.5 Bulk upsert
+
+`POST /v1/products/bulk` is not the CSV path. It takes JSON rows from a caller that already holds
+structured data: a multi-select action on the product list, or paste-into-grid. Up to 500 items.
+
+```json
+{ "on_conflict": "update",
+  "items": [
+    { "sku": "TS-BLK-S", "status": "active",
+      "price": { "amount": 19900000, "currency": "IDR" } },
+    { "sku": "TS-BLK-M", "status": "active",
+      "price": { "amount": 19900000, "currency": "IDR" } } ] }
+
+200 OK
+{ "created": 0, "updated": 1, "failed": 1,
+  "results": [
+    { "index": 0, "sku": "TS-BLK-S", "status": "updated", "variant_id": "0192…" },
+    { "index": 1, "sku": "TS-BLK-M", "status": "error",
+      "code": "validation_failed", "detail": "price.amount must be positive" } ] }
+```
+
+- Keyed on `sku` (BR-043). `on_conflict` is `update` or `error`. A row without `sku` creates a
+  product with one variant and must carry `title`.
+- Item fields: `sku`, `title`, `status`, `price`, `compare_at_price`, `weight_grams`, `barcode`.
+  `status` applies to the variant's product and runs the publish check.
+- Results are indexed by request position. Partial success is the contract: one bad row never
+  rolls back the other 499.
+
+### 7.6 CSV import
+
+The CSV path is `/import`, and the browser never parses the file (BR-044).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant FE as Next.js
+    participant API as cmd/api
+    participant R2 as Cloudflare R2
+    participant W as cmd/worker
+
+    U->>FE: choose products.csv (10,000 rows)
+    Note over FE: parse first ~50 rows ONLY,<br/>to preview and map columns.<br/>Display only — never the source of truth.
+    FE->>API: POST /v1/media/presign {purpose: "product_import"}
+    API-->>FE: presigned PUT url + key
+    FE->>R2: PUT raw file (progress bar)
+    FE->>API: POST /v1/products/import {r2_key, column_mapping}
+    API-->>FE: 202 {job_id}
+    API->>W: enqueue import job
+    W->>R2: stream object, parse server-side
+    W->>W: validate + upsert in batches of 500
+    loop while running
+      FE->>API: GET /v1/jobs/{job_id}
+      API-->>FE: {state, processed, total, failed}
+    end
+    W->>R2: write errors.csv (original line no. + reason)
+    FE->>U: "9,912 imported, 88 failed" + download errors
+```
+
+```json
+POST /v1/products/import
+{ "r2_key": "0192-tenant/jobs/0193…/upload.csv",
+  "column_mapping": { "Nama Produk": "title", "SKU": "sku", "Harga": "price.amount",
+                      "Berat": "weight_grams", "Warna": "option:Colour", "Ukuran": "option:Size" },
+  "on_conflict": "update" }
+
+202 Accepted
+{ "job_id": "0193…" }
+```
+
+`column_mapping` is what the preview step produces, so the tenant's own spreadsheet headers need
+not match our field names. `option:<Name>` columns build the variant matrix; rows with the same
+`title` become one product. Delimiter (`,` or `;`), encoding and BOM are detected server-side.
+10,000 variants finish in under 5 minutes.
 
 ---
 
-## 8. Media
+## 8. Media (M2)
 
-| Method | Path | Izin | BR |
+| Method | Path | Permission | BR |
 |---|---|---|---|
-| `POST` | `/v1/media/presign` | `media:write` | 051, 053 |
+| `POST` | `/v1/media/presign` | `media:write` (or `products:write` for `product_import`) | 051, 053 |
 | `POST` | `/v1/media/confirm` | `media:write` | 050, 051 |
 | `PATCH` | `/v1/media/{id}` | `media:write` | 009 |
 | `DELETE` | `/v1/media/{id}` | `media:write` | 012 |
 | `PATCH` | `/v1/products/{id}/media/order` | `media:write` | — |
 
-Unggahan berjalan **langsung dari browser ke R2**; byte gambar tidak pernah melewati API (BR-051).
+Uploads go **straight from the browser to R2**; bytes never transit the API (BR-051).
 
 ```json
 1. POST /v1/media/presign
-   { "product_id": "0192…", "mime_type": "image/jpeg", "bytes": 5242880 }
+   { "purpose": "product_image", "product_id": "0192…",
+     "mime_type": "image/jpeg", "bytes": 5242880, "sha256": "9f2c…" }
    200 OK
-   { "upload_url": "https://…r2…", "r2_key": "0192-tenant/products/0192…/0193…",
+   { "upload_url": "https://…r2…", "r2_key": "0192-tenant/products/0192…/9f2c….jpg",
      "expires_in": 600 }
 
-2. PUT <upload_url>            byte file mentah, langsung ke R2, dengan progress bar
+2. PUT <upload_url>            raw bytes, straight to R2, with a progress bar
 
 3. POST /v1/media/confirm
-   { "r2_key": "0192-tenant/products/0192…/0193…", "product_id": "0192…", "variant_id": null }
+   { "r2_key": "0192-tenant/products/0192…/9f2c….jpg", "product_id": "0192…", "variant_id": null }
    201 Created
    { "id": "0193…", "product_id": "0192…", "variant_id": null,
-     "r2_key": "0192-tenant/products/0192…/0193…",
      "mime_type": "image/jpeg", "bytes": 5242880, "width": 3000, "height": 4000,
      "position": 0,
-     "url": "https://…",                    ← GET presigned untuk file asli, 1 jam (BR-053)
-     "derivatives": {},                     ← diisi worker dalam ~15 detik (BR-052)
-     "created_at": "2026-08-27T09:15:00Z" }
+     "url": "https://img.{domain}/0192-tenant/products/0192…/9f2c….jpg",
+     "derivatives": {},                     ← filled by the worker within ~15 s (BR-052)
+     "created_at": "2026-10-06T09:15:00Z" }
 ```
 
-- **Presign.** Menerima `image/jpeg`, `image/png`, dan `image/webp` hingga 20 MB; selain itu
-  menghasilkan `422` (BR-051).
-- **Confirm.** Memeriksa content type dan ukuran terhadap `HEAD` dari R2 sebelum menyimpan baris.
-  Key untuk objek yang tidak pernah diunggah menghasilkan `422`.
-- **Turunan (derivative).** Begitu siap, `derivatives` berisi
-  `{ "1600": "https://…", "800": "https://…", "200": "https://…" }`, masing-masing URL presigned
-  1 jam. Body produk membawa objek Media yang sama.
+- **Presign.** `purpose` is `product_image` (JPEG, PNG, WebP up to 20 MB) or `product_import`
+  (CSV up to 50 MB, no `product_id`); anything else is `422`. The key contains the content hash
+  (BR-053).
+- **Confirm.** Checks content type and size against R2's `HEAD` before saving the row. A key for an
+  object never uploaded is `422`.
+- **URLs.** Product images are public on the image domain (BR-053). Once ready, `derivatives` is
+  `{ "1600": "https://img.{domain}/…", "800": "…", "200": "…" }`. The product body carries the same
+  Media objects.
 
 ```json
 PATCH /v1/media/{id}
-{ "variant_id": "0192…" }          atau   { "variant_id": null }    ← pasang ke varian / tingkat produk
+{ "variant_id": "0192…" }          or   { "variant_id": null }    ← attach to a variant / product level
 200 OK   ← Media
 
 PATCH /v1/products/{id}/media/order
-{ "media_ids": ["0193…", "0194…", "0195…"] }    ← setiap id media milik produk, dalam urutan baru
+{ "media_ids": ["0193…", "0194…", "0195…"] }    ← every media id of the product, in the new order
 200 OK
-{ "data": [ …Media, urut position… ] }
+{ "data": [ …Media, by position… ] }
 
 DELETE /v1/media/{id}
-204 No Content   ← menghapus baris; worker menghapus objek R2-nya
+204 No Content   ← deletes the row; the worker deletes the R2 objects
 ```
 
-Media tidak punya `version`, jadi kedua `PATCH` tidak memakai `If-Match`. Daftar urutan yang tidak
-berisi tepat media milik produk itu menghasilkan `422`.
+Media has no `version`, so neither `PATCH` takes `If-Match`. An order list that is not exactly the
+product's media is `422`.
 
 ---
 
-## 9. Ekspor katalog dan job
+## 9. Jobs
 
-| Method | Path | Izin | BR |
+| Method | Path | Permission | BR |
 |---|---|---|---|
-| `GET` | `/v1/products/export?template=&format=csv&status=&brand_id=&category_id=` | `exports:read` | 060, 061, 062 |
-| `GET` | `/v1/jobs/{id}` | izin milik job itu (`exports:read` untuk ekspor) | 060, 063 |
+| `GET` | `/v1/jobs/{id}` | the job's own permission: `products:write` for `product_import`, `exports:read` for `order_export`, `channels:read` for `channel_import` | 060, 063 |
 
 ```json
-GET /v1/products/export?template=shopee&format=csv&status=active&category_id=0192-apparel
-202 Accepted
-{ "job_id": "0192…" }
-
 GET /v1/jobs/{id}
 200 OK
-{ "id": "0192…", "kind": "catalog_export",
-  "state": "done",                         ← queued | running | done | failed
-  "progress": 100,                         ← 0–100
-  "created_at": "2026-08-27T09:15:00Z", "finished_at": "2026-08-27T09:15:41Z",
+{ "id": "0193…", "kind": "product_import",
+  "state": "done",                          ← queued | running | done | failed
+  "processed": 10000, "total": 10000, "failed": 88,
+  "created_at": "2026-10-06T09:15:00Z", "finished_at": "2026-10-06T09:18:41Z",
   "result": {
-    "download_url": "https://…", "expires_in": 900,
-    "products": 412, "variants": 2381,
-    "incomplete": [
-      { "missing": "channel_brand_id",
-        "products": [ { "id": "0192…", "title": "Erigo Basic Tee" } ] },
-      { "missing": "channel_category_id",
-        "products": [ { "id": "0192…", "title": "Erigo Cargo Pants" } ] } ] },
-  "error": null }                          ← sebuah Problem saat state bernilai failed
+    "created": 412, "updated": 9500,
+    "error_report_url": "https://…", "expires_in": 900 },   ← null when nothing failed
+  "error": null }                           ← a Problem when state is failed
 ```
 
-- **Template.** `template` salah satu dari `shopee`, `tokopedia`, `tiktok`, `lazada`, `blibli`,
-  atau `generic`. Template merender katalog ke tata letak kolom lembar bulk-upload marketplace itu
-  (BR-061). Filternya sama dengan daftar produk di §7.1.
-- **Mapping yang kurang.** Tidak pernah menghalangi ekspor. Sel-sel itu dibiarkan kosong dan
-  produknya dicantumkan di `incomplete`, dikelompokkan menurut apa yang kurang (BR-062).
-- **Tautan unduh.** Setiap `GET` pada job yang sudah selesai menandatangani `download_url` baru yang
-  berlaku 15 menit; begitulah tautan dibuat ulang (BR-063). `result` bernilai `null` sampai `state`
-  bernilai `done`.
-
-Tidak ada tabel `channels` yang terlibat: ini murni pembuatan CSV, dan merchant mengunggah filenya
-sendiri. `GET /v1/jobs/{id}` ada sejak Fase 1 karena ekspor membutuhkannya, dan setiap pekerjaan
-async di fase berikutnya memakainya tanpa perubahan.
+- `result` is `null` until `state` is `done`. Its counts depend on `kind`: `order_export` carries
+  `download_url`; `channel_import` carries `created`, `linked`, `filled`, `unchanged`, `failed`.
+- Every `GET` of a finished job signs fresh 15-minute URLs; that is how links are regenerated
+  (BR-063).
 
 ---
 
-## 10. Tidak ada di fase ini
+## 10. Marketplace import (M4)
 
-Cukup sering diminta selama pilot sehingga layak disebut secara eksplisit:
+| Method | Path | Permission | BR |
+|---|---|---|---|
+| `GET` | `/v1/channels` | `channels:read` | — |
+| `POST` | `/v1/channels/{kind}/connect` | `channels:write` | 101 |
+| `GET` | `/v1/channels/{kind}/callback` | signed `state` | 101 |
+| `DELETE` | `/v1/channels/{id}` | `channels:write` | 101 |
+| `POST` | `/v1/channels/{id}/import` | `channels:write` | 100, 105 |
+| `GET` | `/v1/channels/{id}/listings?q=&limit=&cursor=` | `channels:read` | 103 |
+| `DELETE` | `/v1/channel-listings/{id}` | `channels:write` | 108 |
 
-| Endpoint | Fase |
+```json
+GET /v1/channels
+200 OK
+{ "data": [
+    { "id": "0192…", "kind": "shopee", "name": "Erigo Official Shop",
+      "external_shop_id": "123456", "status": "connected",
+      "last_imported_at": "2026-10-06T09:15:00Z", "last_error": null,
+      "listing_count": 412, "running_job_id": null } ] }
+
+POST /v1/channels/shopee/connect
+200 OK
+{ "authorize_url": "https://partner.shopeemobile.com/…&state=…" }
+
+GET /v1/channels/shopee/callback?code=…&shop_id=…&state=…
+302 Found → https://admin.{domain}/channels/0192…?connected=1
+```
+
+- **Connect.** The browser is redirected to the marketplace and back to `callback`. The callback
+  carries no staff token: `state` is an HMAC-signed, 10-minute value binding tenant, user and kind,
+  and it is the only source of the tenant there (BR-003). Reconnecting a `reauth_required` channel
+  uses the same flow and updates the existing row.
+- **Disconnect.** `DELETE` erases credentials and sets `disconnected`; products and links stay
+  (BR-101).
+
+```json
+POST /v1/channels/{id}/import
+{ "new_products_status": "draft" }       ← or "active"; omit for draft (BR-105)
+
+202 Accepted
+{ "job_id": "0193…" }
+```
+
+- A second click while an import runs returns `202` with the **running** job's id (BR-100).
+- A channel that is not `connected` is `422`.
+
+```json
+GET /v1/channels/{id}/listings?q=TS-BLK
+200 OK
+{ "data": [
+    { "id": "0192…", "external_item_id": "2310044", "external_model_id": "88001",
+      "variant": { "id": "0192…", "sku": "TS-BLK-S", "title": "Erigo Basic Tee — Black / S" },
+      "last_imported_at": "2026-10-06T09:15:00Z" } ],
+  "next_cursor": null }
+
+DELETE /v1/channel-listings/{id}
+204 No Content   ← unlink; variant and product untouched (BR-108)
+```
+
+---
+
+## 11. Storefront API (M3)
+
+This is the API owners' websites are built on, so it is the part outside developers read. It is
+published as its own OpenAPI document at `/v1/storefront/openapi.json`, separate from the admin one.
+Storefront routes never accept a staff token (BR-086).
+
+### 11.1 Credentials
+
+| Routes | Credential | Why |
+|---|---|---|
+| Catalog: products, categories, brands | `X-Api-Key` | Public data. The key identifies the shop; the origin check stops other websites using it |
+| Cart and checkout | `X-Api-Key` + cart id in the path | The cart id is random; holding it is the permission |
+| Customer account and order history | `X-Api-Key` + `Authorization: Bearer <customer token>` | Personal data. Never reachable with a key alone |
+| Guest order lookup | `X-Api-Key` + `X-Order-Token` from checkout | The token is the guest's proof the order is theirs |
+
+**Two kinds of key** (BR-028). A publishable key (`pk_live_…`) goes in browser code and must come
+from an allowed origin. A secret key (`sk_live_…`) is for a website with its own server (Next.js,
+Nuxt with SSR); it skips the origin check and is limited per key, not per IP.
+
+### 11.2 The key middleware
+
+Every storefront request runs this before any handler (BR-083, BR-084, BR-085):
+
+1. Resolve `X-Api-Key` by SHA-256 through `resolve_api_key` (cached ≤ 60 s). Missing, unknown or
+   revoked → `401 invalid_api_key`.
+2. **Publishable:** `Origin` must exactly match an allowed origin, else `403 origin_not_allowed`
+   with no `Access-Control-Allow-Origin`. On a match, echo the origin and add `Vary: Origin`.
+3. **Secret:** a `Sec-Fetch-Site` header → `403 secret_key_in_browser`.
+4. Set the tenant from the key; every query then runs through `InTenantTx` like any admin query.
+
+Preflight `OPTIONS` carries no key and is answered for any origin with the allowed methods and
+headers (`X-Api-Key`, `Authorization`, `X-Order-Token`, `Content-Type`).
+
+### 11.3 Endpoints
+
+| Method | Path | Credential | BR |
+|---|---|---|---|
+| `GET` | `/v1/storefront/products?category=&brand=&q=&sort=&limit=&cursor=` | key | 080, 081 |
+| `GET` | `/v1/storefront/products/{slug}` | key | 080, 081 |
+| `GET` | `/v1/storefront/categories?kind=` | key | 031 |
+| `GET` | `/v1/storefront/brands` | key | — |
+| `POST` | `/v1/storefront/carts` | key | 087 |
+| `GET` | `/v1/storefront/carts/{cart_id}` | key + cart | 087 |
+| `PUT` | `/v1/storefront/carts/{cart_id}/items/{variant_id}` | key + cart | 087, 089 |
+| `POST` | `/v1/storefront/carts/{cart_id}/checkout` | key + cart (+ customer) | 088, 089, 090, 091, 095 |
+| `POST` | `/v1/storefront/customers` | key | 092 |
+| `POST` | `/v1/storefront/auth/login` | key | 021, 093 |
+| `POST` | `/v1/storefront/auth/refresh` | key | 093 |
+| `POST` | `/v1/storefront/auth/logout` | key + customer | 093 |
+| `POST` | `/v1/storefront/auth/password-reset` | key | 094 |
+| `POST` | `/v1/storefront/auth/password-reset/confirm` | key | 094 |
+| `GET` | `/v1/storefront/me` | key + customer | 082 |
+| `PATCH` | `/v1/storefront/me` | key + customer | 009, 082 |
+| `GET` | `/v1/storefront/me/orders?limit=&cursor=` | key + customer | 082 |
+| `GET` | `/v1/storefront/me/orders/{order_number}` | key + customer | 082 |
+| `GET` | `/v1/storefront/orders/{order_number}` | key + order token | 082, 091 |
+
+### 11.4 Catalog
+
+```json
+GET /v1/storefront/products?category=apparel.tees&sort=-updated_at&limit=24
+200 OK
+{ "data": [
+    { "slug": "erigo-basic-tee", "title": "Erigo Basic Tee",
+      "brand": { "slug": "erigo", "name": "Erigo" },
+      "price_min": { "amount": 19900000, "currency": "IDR" },
+      "price_max": { "amount": 21900000, "currency": "IDR" },
+      "image": { "url": "https://img.{domain}/…/800.webp",
+                 "sizes": { "1600": "…", "800": "…", "200": "…" } } } ],
+  "next_cursor": "eyJ…" }
+```
+
+- `category` takes a category `path` and includes descendants; `brand` takes a brand slug; `q` is
+  a trigram match on title.
+- `sort`: `-updated_at` (default), `price_min`, `-price_min`, `title`.
+- Only visible products appear (BR-080). p95 under 300 ms.
+
+```json
+GET /v1/storefront/products/erigo-basic-tee
+200 OK
+{ "id": "0192…", "slug": "erigo-basic-tee", "title": "Erigo Basic Tee",
+  "description": "Kaos basic 30s",
+  "brand": { "slug": "erigo", "name": "Erigo" },
+  "categories": [ { "kind": "category", "name": "Tees", "path": "apparel.tees" } ],
+  "attributes": { "material": "Cotton Combed 30s" },
+  "option_names": ["Colour", "Size"],
+  "images": [ { "variant_id": null, "url": "https://img.{domain}/…/1600.webp",
+                "sizes": { "1600": "…", "800": "…", "200": "…" } } ],
+  "variants": [
+    { "id": "0192…", "sku": "TS-BLK-S", "option_values": ["Black", "S"],
+      "price": { "amount": 19900000, "currency": "IDR" },
+      "compare_at_price": null, "weight_grams": 200 } ],
+  "updated_at": "2026-10-06T09:15:00Z" }
+```
+
+A draft, archived or unknown slug is `404`. No field outside the storefront views appears (BR-081).
+
+```json
+GET /v1/storefront/categories?kind=category
+200 OK
+{ "data": [ { "id": "0192…", "parent_id": null, "kind": "category",
+              "name": "Apparel", "path": "apparel" }, … ] }      ← unpaginated, by path
+
+GET /v1/storefront/brands
+200 OK
+{ "data": [ { "slug": "erigo", "name": "Erigo" } ] }            ← unarchived, by name
+```
+
+### 11.5 Cart
+
+```json
+POST /v1/storefront/carts
+201 Created
+{ "cart_id": "7c1e2f0a-…", "items": [], "item_count": 0,
+  "subtotal": { "amount": 0, "currency": "IDR" }, "expires_at": "2026-11-05T09:15:00Z" }
+
+PUT /v1/storefront/carts/{cart_id}/items/{variant_id}
+{ "qty": 2 }                       ← sets the quantity; 0 removes the item
+200 OK   ← Cart
+
+GET /v1/storefront/carts/{cart_id}
+200 OK
+{ "cart_id": "7c1e2f0a-…",
+  "items": [
+    { "variant_id": "0192…", "sku": "TS-BLK-M", "title": "Erigo Basic Tee — Black / M",
+      "product_slug": "erigo-basic-tee", "option_values": ["Black", "M"], "qty": 2,
+      "unit_price": { "amount": 19900000, "currency": "IDR" },   ← today's price (BR-087)
+      "line_total": { "amount": 39800000, "currency": "IDR" },
+      "image_url": "https://img.{domain}/…/200.webp",
+      "available": true } ],
+  "item_count": 2,
+  "subtotal": { "amount": 39800000, "currency": "IDR" },        ← available items only
+  "expires_at": "2026-11-05T09:15:00Z" }
+```
+
+- An unknown, expired or checked-out cart id is `404`.
+- Adding a variant that is not visible is `422` on `variant_id`. A variant that becomes unavailable
+  while in the cart stays listed with `"available": false` so the website can tell the shopper.
+- `qty` outside 0–999 is `422`. A `price` field anywhere is `422 unknown_field` (BR-089).
+- With a customer token, the cart is attached to that customer (BR-095).
+
+### 11.6 Checkout
+
+`POST /v1/storefront/carts/{cart_id}/checkout`. Nothing in the request is a price:
+
+```json
+{ "contact": { "name": "Rina", "email": "rina@example.com", "phone": "+6281234567890" },
+  "shipping_address": { "line1": "Jl. Melati 12", "line2": null, "city": "Bandung",
+                        "province": "Jawa Barat", "postal_code": "40115" },
+  "note": "Tolong dibungkus kado" }
+```
+
+```json
+201 Created          ← 200 with the same body on a replay of a checked-out cart (BR-088)
+{ "order_number": "ERG-000123",
+  "status": "pending",
+  "lines": [
+    { "sku": "TS-BLK-M", "title": "Erigo Basic Tee — Black / M", "qty": 2,
+      "unit_price": { "amount": 19900000, "currency": "IDR" } } ],
+  "subtotal": { "amount": 39800000, "currency": "IDR" },
+  "shipping": { "amount": 0, "currency": "IDR" },
+  "total":    { "amount": 39800000, "currency": "IDR" },
+  "placed_at": "2026-10-06T09:15:00Z",
+  "order_token": "q7Zr…" }                ← guests only; send as X-Order-Token (BR-091)
+```
+
+```mermaid
+sequenceDiagram
+    participant A as Tap 1
+    participant B as Tap 2
+    participant PG as PostgreSQL
+    A->>PG: BEGIN · SELECT cart FOR UPDATE
+    PG-->>A: open, locked
+    B->>PG: BEGIN · SELECT cart FOR UPDATE
+    Note over B,PG: waits on Tap 1's lock
+    A->>PG: INSERT order + lines<br/>UPDATE cart → checked_out
+    A->>PG: COMMIT
+    PG-->>B: unblocked, status = checked_out
+    B->>PG: SELECT order WHERE cart_id
+    Note over A,B: both taps return the same order
+```
+
+- `contact.name`, `contact.email` and `shipping_address.line1`, `city`, `province`,
+  `postal_code` are required. With a customer token, `contact` defaults to the customer's profile
+  and the order goes into their history (BR-095).
+- Unavailable items → `409 item_unavailable` listing them; the cart is untouched (BR-090). Empty
+  cart → `422 empty_cart`.
+- `shipping` is `0` until the shipping-cost question is closed (`01-product-requirements.md` §9).
+- p95 under 1 s. 10 checkouts per minute per IP (BR-014).
+
+### 11.7 Customer accounts
+
+```json
+POST /v1/storefront/customers
+{ "email": "rina@example.com", "password": "at-least-8-chars", "name": "Rina",
+  "phone": "+6281234567890" }
+201 Created   ← Tokens (below); the customer is signed in
+
+POST /v1/storefront/auth/login
+{ "email": "rina@example.com", "password": "…" }
+200 OK
+{ "access_token": "eyJ…", "expires_in": 900,
+  "refresh_token": "rt_8d1f…",                 ← in the body, not a cookie (BR-093)
+  "customer": { "id": "0192…", "email": "rina@example.com", "name": "Rina",
+                "phone": "+6281234567890" } }
+
+POST /v1/storefront/auth/refresh
+{ "refresh_token": "rt_8d1f…" }
+200 OK   ← Tokens with a NEW refresh_token; the old one is now spent
+
+POST /v1/storefront/auth/logout          Authorization: Bearer <customer token>
+{ "refresh_token": "rt_…" }
+204 No Content   ← revokes that session
+
+POST /v1/storefront/auth/password-reset
+{ "email": "rina@example.com", "reset_url": "https://tokoabc.com/reset-password" }
+202 Accepted     ← always, whether or not the email exists (BR-094)
+
+POST /v1/storefront/auth/password-reset/confirm
+{ "token": "prt_…", "password": "new-password" }
+204 No Content   ← every session of that customer is revoked
+```
+
+- Registration with an email already registered at this shop is `422` on `email`. The same email
+  at another shop is unrelated (BR-092).
+- Failed logins are all the same `401 unauthenticated` (BR-021).
+- A refresh token presented a second time revokes the whole session: `401`, and the website must
+  sign the customer in again (BR-093).
+- `reset_url` must start with one of the key's allowed origins (secret keys: any `https` URL); the
+  emailed link is `reset_url?token=…`, valid 30 minutes.
+
+### 11.8 Me and order history
+
+```json
+GET /v1/storefront/me
+200 OK   ← { "id", "email", "name", "phone", "created_at" }
+
+PATCH /v1/storefront/me
+{ "name": "Rina Wijaya", "phone": null }
+200 OK   ← same body; email is not editable in v2
+
+GET /v1/storefront/me/orders?limit=20
+200 OK
+{ "data": [ { "order_number": "ERG-000123", "status": "shipped",
+              "total": { "amount": 39800000, "currency": "IDR" }, "item_count": 2,
+              "placed_at": "2026-10-06T09:15:00Z" } ],
+  "next_cursor": null }
+
+GET /v1/storefront/me/orders/ERG-000123
+GET /v1/storefront/orders/ERG-000123          X-Order-Token: q7Zr…
+200 OK
+{ "order_number": "ERG-000123", "status": "shipped",
+  "lines": [ … as in checkout … ],
+  "subtotal": { … }, "shipping": { … }, "discount": { … }, "total": { … },
+  "shipping_address": { … },
+  "courier": "jne", "tracking_number": "JNE0123456789",
+  "placed_at": "…", "paid_at": "…", "shipped_at": "…", "completed_at": null,
+  "cancelled_at": null }
+```
+
+- `/me/orders/{order_number}` for another customer's order is `404` (BR-011).
+- The guest route with a missing or wrong token is `401 customer_auth_required`; a token for one
+  order never opens another (BR-091).
+
+---
+
+## 12. Not in the API
+
+Asked for often enough to say so explicitly.
+
+| Thing | Status |
 |---|---|
-| `POST /v1/products/bulk` | 2 |
-| `POST /v1/products/import` | 2 |
-| Apa pun di bawah `/v1/orders` | 2 |
-| Apa pun di bawah `/v1/channels` atau `/v1/hooks` | 3 |
-| Apa pun di bawah `/v1/inventory` atau `/v1/locations` | 4 |
-| Ganti dan reset password | belum dijadwalkan |
+| Anything under `/v1/inventory`, `/v1/locations`, stock or sold-out flags | Out of scope (BR-017) |
+| Marketplace order import, stock or price push, inbound webhooks | Out of scope (BR-100) |
+| Courier booking, rate quotes, labels | Out of scope; courier and tracking are recorded (BR-072) |
+| Returns, RMA | Out of scope |
+| Outbound webhooks to tenants | Out of scope |
+| `Idempotency-Key` header | Replaced by cart idempotency (BR-088) |
+| Payment gateway callbacks | Open question, decide before Phase 3 |
+| Staff password change and reset | Not scheduled |
+| Customer email change, WhatsApp OTP sign-in | Not scheduled; OTP is an open question |
+| Promotions, discount codes | Out of scope; manual orders have per-line discounts only |

@@ -1,183 +1,287 @@
-# Backlog Fase 1 — Catalog & Foundation
+# Ecommerce Backoffice v2 · Backlog
 
-**Berurutan.** Item ditulis dalam urutan pengerjaannya. Dependensi mengalir ke bawah; tidak ada yang
-bergantung pada sesuatu di bawahnya. Id mencatat kapan item ditambahkan, bukan posisinya: ambil
-item `todo` **teratas** yang dependensinya sudah `done`.
+**In order.** Items are listed in the order they are built. Dependencies flow downward; nothing
+depends on something below it. Ids record when an item was added, not its position: take the
+**topmost** `todo` item whose dependencies are `done`.
 
-Acceptance merujuk aturan yang dibuktikannya (`BR-xxx`, `02-business-rules.md`); teks aturannya ada
-di sana.
+Acceptance cites the rules it proves (`BR-xxx`, `02-business-rules.md`); the rule text lives
+there. Section references (`§7.3`) point into `04-api-spec.md` unless another file is named.
 
 **Status** `todo` · `wip` · `review` · `done` · `blocked` · `dropped`
-**Repo** `BE` backend · `FE` frontend · `CT` kontrak · `OPS` infrastruktur
+**Repo** `BE` backend · `FE` frontend · `CT` contracts · `OPS` infrastructure
+
+Ids keep the `P1-` prefix from v1 so branches, commits and PR history stay readable. Phases follow
+the v2 delivery plan (about 28 weeks).
 
 ---
 
-## Aturan
+## Rules
 
-- **Satu item, satu PR, satu branch** bernama `p1-<id>-<slug>` (mis. `p1-014-variant-matrix`).
-- **Klaim dengan menyetel `wip` dan menulis namamu di Owner**, lewat commit ke file ini, sebelum
-  menulis kode. Dua agent di satu item adalah kegagalan yang membuat file ini ada.
-- **Item `done` hanya kalau kolom Acceptance-nya terbukti benar** — bukan saat kodenya di-merge.
-  Kalau acceptance butuh test, test itu bagian dari item.
-- **Item `BE` dan padanan `FE`-nya adalah item terpisah.** Keduanya rilis mandiri; frontend bekerja
-  dengan client hasil generate dan bisa dibangun sebelum backend kalau kontraknya sudah ada.
-- **`blocked` wajib punya alasan** di Notes. Item blocked tanpa alasan sama dengan `todo`.
-- Jangan mengurutkan ulang item demi kenyamanan. Kalau urutannya salah, jelaskan kenapa di PR.
+- **One item, one PR, one branch** named `p1-<id>-<slug>` (e.g. `p1-205-checkout`).
+- **Claim by setting `wip` and your name in Owner**, in a commit to this file, before writing code.
+  Two agents on one item is the failure this file exists to prevent.
+- **An item is `done` only when its Acceptance is proven true**, not when the code merges. If
+  acceptance needs a test, the test is part of the item.
+- **A `BE` item and its `FE` counterpart are separate items.** Each ships on its own; the frontend
+  works against the generated client and can be built before the backend once the contract exists.
+- **`blocked` needs a reason** in a note under the table. A blocked item without one is `todo`.
+- Don't reorder items for convenience. If the order is wrong, say why in the PR.
 
 ---
 
-## M0 · Fondasi (minggu 1–3)
+## Phase 0 · Foundation (weeks 1–4)
 
-Tidak ada yang terlihat oleh user di sini. Semua yang sesudahnya bergantung pada seluruh isinya.
+Nothing user-visible. Everything after depends on all of it.
 
-Infrastruktur produksi — VPS, Caddy, TLS, backup, dan CI — ada di `M4` di akhir fase, bukan di sini.
-Belum ada mesin dan belum ada domain; setiap dokumen masih menulis `{domain}`. Satu-satunya bagian
-yang benar-benar dibutuhkan backend adalah PostgreSQL 18 yang bisa dihubungi, dan `P1-000`
-menyediakannya dari mesin developer sendiri — sebuah connection string dan target `make`, tanpa
-container. Ini pengurutan ulang yang disengaja, bukan demi kenyamanan — alasannya ada di `M4`.
+**Exit:** the tenant isolation suite is green over every route.
 
-**Layanan di host, bukan container.** Mesin dev yang sudah menjalankan PostgreSQL dan Redis tidak
-mendapat apa-apa dari salinan kedua di Docker; container hanya menambah satu runtime lagi yang harus
-dijaga tetap hidup. Konsekuensinya, versi dev adalah apa pun yang ada di mesin, dan itulah sebabnya
-pin-nya PostgreSQL 18 dan Redis 8 selagi belum ada mesin dan belum ada data untuk dimigrasi.
-Menyamakan dev dengan prod menghapus satu jenis bug (fitur khusus 18 yang sampai ke server 16) yang
-tidak bisa ditangkap secara andal oleh review sebanyak apa pun. Tinjau ulang pin ini hanya setelah
-mesinnya ada.
+**Host services, not containers.** A dev machine already running PostgreSQL and Redis gains nothing
+from a second copy in Docker. So the dev versions are whatever the machine runs, which is why the
+pins are PostgreSQL 18 and Redis 8 while there is no server and no data to migrate. The v2 spec
+names PostgreSQL 16 and Redis 7; production follows the dev pins instead, so a feature that only
+exists in 18 can never reach a 16 server (`P1-002`). Revisit only once the machine exists.
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-000 | Layanan dev lokal: PostgreSQL 18 + Redis 8 di host | OPS | — | `make dev` terhubung ke PostgreSQL 18 di host pada `:5432` dan Redis 8 pada `:6379`; `GET /healthz` melaporkan keduanya | done | Iqbal Hamdani |
-| P1-005 | Kerangka `openapi.yaml` + generator terpasang di dua repo | CT/BE/FE | 000 | `make generate` tidak mengubah apa pun pada tree bersih di dua repo | done | Iqbal Hamdani |
-| P1-006 | Runner migrasi, peran `app_user` non-owner, helper RLS | BE | 000 | `app_user` tidak memiliki apa pun; `FORCE RLS` di setiap tabel tenant (BR-001) | done | Iqbal Hamdani |
-| P1-007 | `InTenantTx`, konteks tenant, gagal tertutup saat tenant tidak ada | BE | 006 | Tanpa tenant mengembalikan `ErrNoTenantContext`, tidak pernah hasil kosong (BR-002) | done | Iqbal Hamdani |
-| P1-008 | **Suite test isolasi tenant atas setiap route terdaftar** | BE | 007 | Dua tenant di-seed; token A mengembalikan nol baris milik B di setiap route (BR-001, BR-003) | done | Iqbal Hamdani |
-| P1-009 | Penjaga policy RLS | BE | 006 | `make lint-rls` keluar non-zero untuk tabel ber-`tenant_id` tanpa policy (BR-001) | done | Iqbal Hamdani |
-| P1-010 | Skema `tenants`, `users`, `refresh_tokens`, `api_keys` | BE | 006 | Persis sesuai `03-erd.md` §3.2 | done | Iqbal Hamdani |
-| P1-011 | Auth: login, rotasi refresh, logout, argon2id | BE | 010 | Refresh token yang dipakai ulang mencabut seluruh rantai (BR-020–022) | done | Iqbal Hamdani |
-| P1-012 | RBAC: 5 peran di-seed, pengecekan `resource:action` di batas handler | BE | 011 | `403` menyebut izin yang dibutuhkan di `detail` (BR-023, BR-024) | done | Iqbal Hamdani |
-| P1-013 | Envelope error (RFC 9457), `trace_id`, wiring OpenTelemetry | BE | 007 | Setiap error membawa `trace_id` yang bisa ditelusuri ke span (BR-011) | done | Iqbal Hamdani |
-| P1-014 | App shell, routing, layar auth, penanganan sesi | FE | 005, 011 | Access token di memori, refresh di cookie httpOnly (BR-022) | done | Iqbal Hamdani |
-| P1-015 | Batas laju per user dan per API key, header `RateLimit-*` | BE | 012 | Melewati batas menghasilkan `429 rate_limited`; header ada di setiap respons (BR-014) | todo | |
-| P1-016 | Allow-list field log | BE | 013 | Field yang tidak ada di allow-list diredaksi di setiap baris log (BR-013) | todo | |
+| P1-000 | Local dev services: PostgreSQL 18 + Redis 8 on the host | OPS | — | `make dev` connects to PostgreSQL 18 on the host at `:5432` and Redis 8 at `:6379`; `GET /healthz` reports both | done | Iqbal Hamdani |
+| P1-005 | `openapi.yaml` skeleton + generators wired in both repos | CT/BE/FE | 000 | `make generate` changes nothing on a clean tree in both repos | done | Iqbal Hamdani |
+| P1-006 | Migration runner, non-owner `app_user` role, RLS helper | BE | 000 | `app_user` owns nothing; `FORCE RLS` on every tenant table (BR-001) | done | Iqbal Hamdani |
+| P1-007 | `InTenantTx`, tenant context, fail closed with no tenant | BE | 006 | No tenant returns `ErrNoTenantContext`, never an empty result (BR-002) | done | Iqbal Hamdani |
+| P1-008 | **Tenant isolation suite over every registered route** | BE | 007 | Two tenants seeded; token A returns zero of B's rows on every route (BR-001, BR-003) | done | Iqbal Hamdani |
+| P1-009 | RLS policy guard | BE | 006 | `make lint-rls` exits non-zero for a `tenant_id` table without a policy (BR-001) | done | Iqbal Hamdani |
+| P1-010 | Schema `tenants`, `users`, `refresh_tokens`, `api_keys` | BE | 006 | Matched `03-erd.md` §3.2 as of v1.6.1; v2 changes are `P1-017` and `P1-019` | done | Iqbal Hamdani |
+| P1-011 | Auth: login, refresh rotation, logout, argon2id | BE | 010 | A reused refresh token revokes its whole chain (BR-020–022) | done | Iqbal Hamdani |
+| P1-012 | RBAC: seeded roles, `resource:action` check at the handler boundary | BE | 011 | `403` names the required permission in `detail` (BR-023, BR-024). Shipped with five roles; `P1-017` makes it four | done | Iqbal Hamdani |
+| P1-013 | Error envelope (RFC 9457), `trace_id`, OpenTelemetry wiring | BE | 007 | Every error carries a `trace_id` traceable to a span (BR-011) | done | Iqbal Hamdani |
+| P1-014 | App shell, routing, auth screens, session handling | FE | 005, 011 | Access token in memory, refresh in an httpOnly cookie (BR-022) | done | Iqbal Hamdani |
+| P1-015 | Admin rate limits, `RateLimit-*` headers | BE | 012 | Over 600 req/min/user → `429 rate_limited` with `Retry-After`; headers on every response; per-process fallback when Redis is down (BR-014). Storefront limits are `P1-209` | todo | |
+| P1-016 | Log field allow-list | BE | 013 | Fields not on the allow-list are redacted on every log line; `Authorization`, `X-Api-Key`, `X-Order-Token` and cookies never appear (BR-013) | todo | |
+| P1-017 | Four roles: drop `warehouse`, v2 permission matrix | BE/FE | 012 | Migration removes `warehouse` from the `users.role` CHECK and fails loudly if any user holds it; seeded permissions equal §3; `GET /v1/roles` returns four; generated clients pick up the enum from contracts `v2.0.0` (BR-023) | todo | |
+| P1-018 | `audit_log` table and recorder | BE | 007 | As `03-erd.md` §3.2. Every mutating admin route writes exactly one row in the same transaction, none if it rolls back; asserted over every registered mutating route (BR-018) | todo | |
+| P1-019 | `api_keys` v2 shape and `resolve_api_key` | BE | 010 | As `03-erd.md` §3.2: `kind`, `prefix`, `allowed_origins` and the CHECK added, `permissions` dropped; `resolve_api_key` is `SECURITY DEFINER` and returns only its five columns (BR-003, BR-028) | todo | |
+| P1-080 | Apply for Shopee and Tokopedia partner API access | OPS | — | Both applications submitted; dates and status noted under this table. A human task: `/next` reports it and stops | todo | |
 
 ---
 
-## M1 · Inti katalog (minggu 5–8)
+## Phase 1 · Catalog (weeks 5–10)
+
+M2 complete: products, variants, matrix editor, brands, categories, bulk edit, CSV import, R2 media
+and the image domain. Team management and settings land here too, because the onboarding wizard
+needs them.
+
+**Exit:** a 10,000-variant CSV imports in under 5 minutes.
+
+### Catalog core
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-020 | Skema `brands` + composite FK ke tenant | BE | 010 | Sesuai `03-erd.md` §3.3; `products_same_tenant_as_brand` menolak brand lintas tenant (BR-004) | todo | |
-| P1-021 | API CRUD brand termasuk `channel_brand_ids` | BE | 020 | Sesuai `04-api-spec.md` §5 (BR-010, BR-012, BR-030) | todo | |
-| P1-022 | Skema `categories`, ltree, slugify, trigger path | BE | 010 | Pemindahan menulis ulang path setiap keturunan dalam satu statement (BR-032) | todo | |
-| P1-023 | Penjaga siklus kategori + penanganan bentrok slug antar-saudara | BE | 022 | Memindahkan node ke bawah keturunannya sendiri memicu error (BR-034, BR-035) | todo | |
-| P1-024 | API kategori, filter `kind`, fetch dengan batas kedalaman | BE | 022 | Sesuai `04-api-spec.md` §6; `path` dikirim → `422`; menghapus kategori yang dipakai → `409 category_in_use` beserta jumlahnya (BR-008, BR-036) | todo | |
-| P1-025 | Skema `products` termasuk `attributes`, `option_names` | BE | 020 | Sesuai `03-erd.md` §3.3 | todo | |
-| P1-026 | Skema `variants`, partial unique index SKU, composite FK | BE | 025 | Banyak SKU null diizinkan; yang non-null unik per tenant; satu varian hidup per kombinasi opsi (BR-039, BR-040) | todo | |
-| P1-027 | Join `product_categories`, keanggotaan multi-`kind` | BE | 022, 025 | Satu produk di 3 pohon dengan kind berbeda sekaligus; tautan lintas tenant ditolak (BR-004, BR-031) | todo | |
-| P1-028 | CRUD produk, `If-Match`, penolakan field yang dikelola server | BE | 025 | Sesuai `04-api-spec.md` §7.1 (BR-008, BR-009, BR-010, BR-012) | todo | |
-| P1-029 | CRUD varian | BE | 026 | Sesuai `04-api-spec.md` §7.2; SKU duplikat → `409 duplicate_sku` (BR-039) | todo | |
-| P1-030 | Daftar produk: pencarian (trigram), filter, pagination cursor | BE | 028 | p95 < 600ms dengan 10k produk; `category_id` mencakup keturunannya | todo | |
-| P1-031 | Layar brand manager | FE | 021 | Kriteria penerimaan `01-product-requirements.md` §5.1 | todo | |
-| P1-032 | Category manager: pohon, drag-to-move, dialog konfirmasi | FE | 024 | Kriteria penerimaan `01-product-requirements.md` §5.3 (BR-033) | todo | |
-| P1-033 | Layar daftar produk: pencarian, filter, state tersimpan | FE | 030 | Pilihan tetap bertahan melewati pagination dan filter | todo | |
-| P1-034 | Editor produk: field, pilihan brand, multi-select kategori | FE | 028 | Ada prompt perubahan belum tersimpan saat berpindah halaman | todo | |
+| P1-020 | `brands` schema + composite FK to tenant | BE | 010 | As `03-erd.md` §3.3; unique slug per tenant including archived (BR-004, BR-030) | todo | |
+| P1-021 | Brand CRUD API | BE | 020 | As §6.1 (BR-010, BR-012, BR-030) | todo | |
+| P1-022 | `categories` schema, ltree, slugify, path trigger | BE | 010 | As `03-erd.md` §3.7; a move rewrites every descendant path in one statement (BR-032) | todo | |
+| P1-023 | Category cycle guard + same-name sibling handling | BE | 022 | Moving a node beneath its own descendant errors; siblings named alike get `_1` labels (BR-034, BR-035) | todo | |
+| P1-024 | Category API, `kind` filter, depth-limited fetch | BE | 022 | As §6.2; sending `path` → `422`; deleting a category in use → `409 category_in_use` with counts (BR-008, BR-036) | todo | |
+| P1-025 | `products` schema incl. `slug`, `attributes`, `option_names` | BE | 020 | As `03-erd.md` §3.3; no quantity column anywhere (BR-017, BR-042) | todo | |
+| P1-026 | `variants` schema, partial unique SKU index, composite FK | BE | 025 | Many null SKUs allowed; non-null unique per tenant; one live variant per option combination (BR-039, BR-040) | todo | |
+| P1-027 | `product_categories` join, multi-`kind` membership | BE | 022, 025 | One product in 3 trees of different kinds at once; a cross-tenant link is refused (BR-004, BR-031) | todo | |
+| P1-028 | Product CRUD, `If-Match`, slug, server-managed fields refused | BE | 025, 027 | As §7.1; changing the title never changes the slug (BR-008, BR-009, BR-010, BR-012, BR-042) | todo | |
+| P1-029 | Variant CRUD | BE | 026 | As §7.2; a duplicate SKU → `409 duplicate_sku` naming the holder (BR-039) | todo | |
+| P1-030 | Product list: trigram search, filters, cursor pagination | BE | 028 | p95 < 600 ms with 10k products; `category_id` includes descendants; exact SKU matches | todo | |
+| P1-060 | Job runner (Redis Streams) + `jobs` table + `GET /v1/jobs/{id}` | BE | 007 | As §9 and `03-erd.md` §3.2; a job killed mid-run is redelivered and finishes once (BR-060, BR-063) | todo | |
+| P1-040 | `PUT /variant-matrix`: server-side diff, one transaction | BE | 029 | As §7.3: created, updated, restored and archived counted correctly (BR-040, BR-041) | todo | |
+| P1-041 | Partial-failure semantics in the matrix | BE | 040 | One duplicate SKU fails only its row; the rest save; 100 cells save in < 2 s (BR-041) | todo | |
+| P1-042 | `product_media` schema | BE | 025 | As `03-erd.md` §3.3 (BR-004, BR-050) | todo | |
+| P1-043 | Media API: presign, confirm with `HEAD` check, attach, reorder, delete | BE | 042 | As §8; a key never uploaded → `422`; keys carry the content hash (BR-051, BR-053) | todo | |
+| P1-044 | Worker: WebP derivatives 1600/800/200 via libvips | BE | 043, 060 | Derivatives ready in < 15 s p95; uploading never blocks the form (BR-052) | todo | |
+| P1-045 | R2 bucket, tenant prefixes, lifecycle rules, image domain Worker | OPS | 042 | Product images served public and edge-cached from the image domain (a dev domain until `P1-001`); `errors.csv` deleted after 30 days, exports after 7 (BR-053) | todo | |
+| P1-049 | Publish check on `draft → active` | BE | 040, 043 | `422 publish_check_failed` lists every failure with its variant id (BR-038) | todo | |
+| P1-072 | `POST /v1/products/bulk` | BE | 029, 049 | As §7.5: up to 500 rows, per-row results by index, one bad row rolls back nothing (BR-043) | todo | |
+| P1-073 | CSV import job: server-side parse, column mapping, `errors.csv` | BE | 060, 072 | 10,000 variants in < 5 min; `,` and `;` delimiters and BOM handled; every error cites its original line number (BR-044) | todo | |
+| P1-031 | Brand manager screen | FE | 021 | `01-product-requirements.md` §4 | todo | |
+| P1-032 | Category manager: tree, drag-to-move, confirmation dialog | FE | 024 | The move dialog states descendant and product counts (BR-033) | todo | |
+| P1-033 | Product list screen: search, filters, saved state | FE | 030 | Filters survive navigation and reload | todo | |
+| P1-034 | Product editor: fields, slug, brand picker, category multi-select | FE | 028 | Unsaved-changes prompt; editing a slug warns that old links break (BR-042) | todo | |
+| P1-046 | **Variant matrix editor**: grid, paste from Excel, fill-down | FE | 040 | A 2×5 grid renders 10 cells and saves in one request; a failed row is highlighted with its error (BR-041) | todo | |
+| P1-047 | Bulk price adjustment in the matrix (± amount / %) | FE | 046 | A preview shows before it applies | todo | |
+| P1-048 | Media library: drag-drop, direct R2 upload, reorder, attach to variant | FE | 043 | Image bytes never pass through the API (BR-051) | todo | |
+| P1-075 | Publish flow in the editor | FE | 049, 046 | Every publish-check failure links to its field or matrix cell (BR-038) | todo | |
+| P1-076 | Product list bulk actions (status, price) via bulk upsert | FE | 033, 072 | Per-row failures shown inline; successes stay applied (BR-043) | todo | |
+| P1-074 | Bulk import wizard: upload, 50-row preview, column mapping, progress, error download | FE | 073 | The browser parses only the preview (BR-044) | todo | |
 
----
-
-## M2 · Matriks varian & media (minggu 8–10)
-
-Pekerjaan yang membedakan fase ini. `01-product-requirements.md` §5.2 adalah rujukan kriteria penerimaannya.
-
-| ID | Item | Repo | Depends | Acceptance | Status | Owner |
-|---|---|---|---|---|---|---|
-| P1-040 | `PUT /variant-matrix`: diff di server, satu transaksi | BE | 029 | Sesuai `04-api-spec.md` §7.3: create + update + restore + arsip; hasil per baris (BR-040, BR-041) | todo | |
-| P1-041 | Semantik kegagalan sebagian di matriks | BE | 040 | Satu SKU duplikat hanya menggagalkan baris itu; baris lain tetap tersimpan (BR-041) | todo | |
-| P1-042 | Skema `product_media` | BE | 025 | Sesuai `03-erd.md` §3.3 (BR-004, BR-050) | todo | |
-| P1-043 | API media: presign, confirm dengan validasi HEAD, assign, urutkan ulang, hapus | BE | 042 | Sesuai `04-api-spec.md` §8; key tidak bisa didaftarkan untuk objek yang tidak pernah diunggah (BR-051) | todo | |
-| P1-044 | Worker: turunan gambar WebP 1600/800/200 lewat libvips | BE | 043 | Turunan siap < 15s p95 (BR-052) | todo | |
-| P1-045 | Bucket R2, prefix tenant, kebijakan GET presigned | OPS | 042 | Gambar produk 1 jam; ekspor 15 menit (BR-053) | todo | |
-| P1-046 | **Editor matriks varian**: grid, paste dari Excel, fill-down | FE | 040 | Grid 2×5 merender 10 sel, tersimpan dalam satu request < 2s (BR-041) | todo | |
-| P1-047 | Penyesuaian harga massal di matriks (± nominal / %) | FE | 046 | Ada pratinjau sebelum diterapkan | todo | |
-| P1-048 | Media library: drag-drop, unggah langsung ke R2, urutkan ulang, assign ke varian | FE | 043 | Gambar 5MB menampilkan progres dan tidak pernah memblokir form (BR-051, BR-052) | todo | |
-| P1-049 | Publish check pada `draft → active` | BE/FE | 040, 043 | `422 publish_check_failed` mencantumkan setiap kegagalan; editor menautkan masing-masing ke selnya (BR-038) | todo | |
-
-> **P1-049 adalah tempat SKU yang nullable ditegakkan.** Ini pengecekan di jalur publish, bukan
-> constraint tabel — membuat draft harus tetap mulus. Lihat BR-038 dan `03-erd.md` §4.1.
-
----
-
-## M3 · Ekspor & admin (minggu 10–12)
+### Team and settings
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-060 | Runner job asinkron + `GET /v1/jobs/{id}` | BE | 007 | Sesuai `04-api-spec.md` §9; dipakai ulang tanpa perubahan oleh setiap fase berikutnya (BR-060) | todo | |
-| P1-061 | Ekspor katalog: template untuk 5 marketplace + generic | BE | 060, 030 | 10k varian < 60s; terbuka rapi di Excel dengan locale Indonesia (BR-061, BR-064) | todo | |
-| P1-062 | Ekspor melaporkan pemetaan channel yang belum lengkap, dikelompokkan | BE | 061 | Tetap dibuat; menyebut apa yang hilang (BR-062) | todo | |
-| P1-063 | Layar ekspor: pemilih template, filter, unduhan | FE | 061 | Tautan kedaluwarsa dalam 15 menit dan bisa dibuat ulang (BR-063) | todo | |
-| P1-064 | User: undang, kirim ulang, atur peran, nonaktifkan | BE | 012 | Sesuai `04-api-spec.md` §4 (BR-026, BR-027) | todo | |
-| P1-065 | API key: terbitkan, tampilkan prefix, cabut | BE | 012 | Secret ditampilkan tepat sekali; izin dibatasi pada izin pembuatnya (BR-028) | todo | |
-| P1-066 | Layar Team & roles | FE | 064 | `ops` sama sekali tidak melihat navigasi pengelolaan user (BR-025) | todo | |
-| P1-067 | Layar API keys | FE | 065 | UI salin-sekali dengan peringatan eksplisit (BR-028) | todo | |
-| P1-071 | API settings: `GET`/`PATCH /v1/settings` | BE | 012 | Sesuai `04-api-spec.md` §4; hanya `owner` yang bisa `PATCH` (BR-023, BR-029) | todo | |
-| P1-068 | Wizard onboarding termasuk pengisian `channel_brand_ids` | FE | 021, 024, 071 | Kriteria penerimaan `01-product-requirements.md` §5.1 (BR-029, BR-030) | todo | |
-| P1-069 | Empty state yang membawa pesan "no stock yet" | FE | 033 | Ada di daftar produk dan editor produk (BR-015) | todo | |
+| P1-064 | Users: invite, accept, resend, set role, disable | BE | 017, 018 | As §2 and §4 (BR-026, BR-027) | todo | |
+| P1-071 | Settings API: `GET`/`PATCH /v1/settings` | BE | 017 | As §4; only `owner` can `PATCH` (BR-023, BR-029) | todo | |
+| P1-077 | Audit log API: `GET /v1/audit-log` | BE | 018 | As §4; newest first, filterable by subject and actor (BR-018) | todo | |
+| P1-066 | Team & roles screen | FE | 064 | `ops` sees no user-management navigation at all (BR-025) | todo | |
+| P1-068 | Onboarding wizard: settings, first brand, first category tree | FE | 021, 024, 071 | `01-product-requirements.md` §4; defaults pre-filled (BR-029) | todo | |
+| P1-078 | Audit log screen | FE | 077 | Shows actor, action, before/after per row (BR-018) | todo | |
 
 ---
 
-## M4 · Kesiapan produksi & pilot (minggu 10–12)
+## Phase 2 · Orders (weeks 11–13)
 
-Dipindah turun dari `M0`, dengan sengaja. Tidak satu pun bisa didemonstrasikan hari ini — belum ada
-VPS dan domain, jadi acceptance `P1-001` tidak punya apa pun untuk ditunjuk — dan tidak ada yang di
-`M0`–`M3` membutuhkannya, karena backend dikembangkan dengan layanan yang terpasang di host dari
-`P1-000`.
+M1: state machine, order list and detail, manual entry, customer views, export. Orders come before
+the storefront because checkout creates orders through this state machine, and ops must be able
+to work an order the day the first one arrives.
 
-Item ini tidak bisa dipindah lebih jauh lagi. `P1-070` menaruh katalog merchant sungguhan di mesin,
-dan itu tidak boleh terjadi di storage yang belum pernah dipakai untuk restore.
+**Exit:** every transition is audited; illegal transitions are rejected.
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-001 | Provisioning VPS, Docker Compose, Caddy, TLS | OPS | — | `docker compose up` melayani HTTPS di domain | todo | |
-| P1-002 | PostgreSQL 18 + Redis 8 dengan config yang di-tune dan batas resource | OPS | 001 | `shared_buffers` ≈ 25% RAM; `cpus`/`mem_limit` per layanan disetel | todo | |
-| P1-003 | **pgBackRest ke R2 + latihan restore** | OPS | 002 | **Restore dari R2 ke mesin bersih berhasil.** Memblokir semua data merchant | todo | |
-| P1-004 | CI: lint, test, migrasi-di-snapshot, pengecekan drift kontrak | BE/FE | 001 | PR yang merusak salah satu dari keempatnya berstatus merah | todo | |
-| P1-070 | Onboarding merchant pilot: katalog sungguhan dimuat | OPS | all | Katalog sungguhan satu merchant ada di sistem | todo | |
-
-> **P1-003 menjadi gerbang pilot.** `P1-070` tidak dimulai sampai latihan restore lulus, begitu
-> juga Fase 2. Semua yang terjadi sesudahnya berasumsi data merchant bisa dipulihkan.
-> Provisioning yang terlambat menyisakan waktu lebih sedikit antara mesin tersedia dan pilot
-> bergantung padanya, jadi perlakukan minggu 10 sebagai tanggal mulai pasti untuk `P1-001`, bukan
-> sekadar target.
-
-> **`P1-001` butuh keputusan sebelum bisa dimulai:** domain produksi. Setiap dokumen masih menulis
-> `{domain}`. Challenge ACME default milik Caddy juga tidak bisa menjangkau mesin lewat proxy
-> Cloudflare, jadi mode TLS — DNS-01 dengan token Cloudflare, atau sertifikat Cloudflare Origin —
-> adalah bagian dari item ini, bukan detail implementasinya.
+| P1-100 | Schema: `customers`, `order_sequences`, `orders`, `order_lines` | BE | 026, 018 | As `03-erd.md` §3.5–3.6 minus `orders.cart_id`, which arrives with `P1-204`; the shipped-needs-tracking and refund CHECKs refuse direct SQL; archiving a variant leaves its order lines intact (BR-004, BR-045, BR-072, BR-076, BR-077, BR-079) | todo | |
+| P1-101 | Order `Transition`: allow-list, row lock, stamps, audit | BE | 100 | Unit-tested over every from × to pair; a move to the current status is a no-op; exactly one audit row per change (BR-070, BR-071, BR-073) | todo | |
+| P1-102 | Status routes: mark-paid, process, ship, complete, cancel, refund | BE | 101 | As §5.3; illegal → `409 illegal_transition`; ship without tracking → `422`; refund only on a paid, cancelled order, once (BR-072, BR-074, BR-075) | todo | |
+| P1-103 | Order list API with saved-view filters | BE | 100 | As §5.1; `refund_owed=true` returns exactly the cancelled-paid-unrefunded orders; p95 first byte < 800 ms at 10k orders (BR-075) | todo | |
+| P1-104 | Order detail and `PATCH` while pending | BE | 101 | As §5.2; `PATCH` after `pending` → `422`; totals recomputed; `allowed_transitions` from the allow-list (BR-010, BR-079) | todo | |
+| P1-105 | Manual order entry `POST /v1/orders` | BE | 101 | As §5.4; prices from the catalog; a `unit_price` in the body → `422 unknown_field`; snapshots written (BR-076, BR-078) | todo | |
+| P1-106 | Customer list and detail API | BE | 100 | As §5.5; no credential field ever appears (BR-092) | todo | |
+| P1-107 | Order export job | BE | 060, 103 | As §5.6; one row per line; opens cleanly in Excel with Indonesian locale; link regenerates (BR-063, BR-064, BR-065) | todo | |
+| P1-108 | Order list screen with saved views | FE | 103 | The four saved views of `01-product-requirements.md` §6.1; mark-paid from the list | todo | |
+| P1-109 | Order detail screen: actions, ship dialog, refund record, audit trail | FE | 102, 104, 077 | Only `allowed_transitions` are offered; the ship dialog requires courier and tracking (BR-025, BR-072) | todo | |
+| P1-110 | Manual order entry screen | FE | 105 | Submit is disabled while the request is in flight (BR-078) | todo | |
+| P1-111 | Customer list and detail screens | FE | 106 | Detail shows the customer's orders, newest first | todo | |
+| P1-112 | Order export screen | FE | 107 | Uses the order-list filters; download link expires in 15 minutes and can be regenerated (BR-063) | todo | |
 
 ---
 
-## Definisi Selesai
+## Phase 3 · Storefront API (weeks 14–19)
 
-Sebuah item `done` kalau **semua** hal ini benar. Bukan empat dari lima.
+M3: API keys and origin allowlist, storefront views, catalog routes, carts, checkout, customer
+accounts, order history, guest lookup, public docs. The open questions on payment, shipping cost,
+email provider and customer sign-in (`01-product-requirements.md` §9) are due before this phase.
 
-1. Kolom Acceptance terbukti benar, dengan test di mana test memungkinkan.
-2. Sesuai dengan kontrak. Kalau tidak bisa, kontraknya diubah lebih dulu, di PR-nya sendiri.
-3. Isolasi tenant terjaga — route baru tercakup oleh suite P1-008.
-4. Error memakai envelope RFC 9457 dengan `trace_id`.
-5. Tidak ada field yang dikelola server yang diterima dari klien.
-6. `make generate` tidak mengubah apa pun pada tree bersih di dua repo.
-7. Di-review oleh orang yang tidak menulisnya.
+**Exit:** the customer isolation suite is green; 20 parallel checkouts of one cart create one
+order; a minimal reference website built from the public docs alone goes product → cart → checkout
+→ order history.
+
+| ID | Item | Repo | Depends | Acceptance | Status | Owner |
+|---|---|---|---|---|---|---|
+| P1-200 | API key API: create, list, edit origins, revoke | BE | 019, 018 | As §4; plaintext returned once; publishable without origins → `422`; origins exact `scheme://host[:port]` (BR-028, BR-083) | todo | |
+| P1-201 | API keys screen | FE | 200 | Copy-once UI with an explicit warning; link to the storefront docs (BR-028) | todo | |
+| P1-202 | Storefront route tree + key middleware | BE | 019, 015 | As §11.2: `invalid_api_key`, `origin_not_allowed` without ACAO, `secret_key_in_browser`, preflight for any origin; revoked key dead within 60 s; storefront and admin packages do not import each other (BR-003, BR-083, BR-084, BR-085) | todo | |
+| P1-203 | Storefront views + catalog routes | BE | 202, 030, 044 | As §11.4; handlers query only the views; draft and archived products never appear; p95 < 300 ms (BR-080, BR-081) | todo | |
+| P1-204 | `carts`, `cart_items`, `orders.cart_id`; cart routes | BE | 203, 100 | As §11.5 and `03-erd.md` §3.5; cart id is v4; prices never stored; `price` field → `422 unknown_field` (BR-005, BR-087, BR-089) | todo | |
+| P1-205 | **Checkout** | BE | 204, 101 | As §11.6; 20 parallel checkouts of one cart → one order, all 20 responses carry it; replay → `200` same order; `item_unavailable` leaves the cart untouched; guest `order_token` (BR-088, BR-089, BR-090, BR-091) | todo | |
+| P1-206 | Customer accounts: register, login, refresh rotation, logout | BE | 202, 100 | As §11.7; tokens in the body; reused refresh token revokes the session; tenant-B key with tenant-A token → `401`; customer token on any admin route → `401` (BR-021, BR-086, BR-092, BR-093) | todo | |
+| P1-207 | Password reset | BE | 206 | As §11.7; link valid 30 min, single use, revokes every session; always `202`. Blocked until the email provider is chosen (BR-094) | todo | |
+| P1-208 | `me`, order history, guest order lookup | BE | 205, 206 | As §11.8; cart follows the shopper after sign-in; one order token never opens another order (BR-082, BR-091, BR-095) | todo | |
+| P1-209 | Storefront rate limits | BE | 202 | Publishable per IP and per key, secret per key, login, checkout, as BR-014; headers on every response | todo | |
+| P1-210 | Storefront auth matrix suite | BE | 208 | Table-driven over key kind × origin × fetch-metadata × token presence against every storefront route (BR-082–BR-086) | todo | |
+| P1-211 | **Customer isolation suite** | BE | 208 | Two tenants × two customers; zero leakage both ways on every customer-scoped route; extends `P1-008` to the storefront tree (BR-001, BR-082) | todo | |
+| P1-213 | Public storefront OpenAPI at `/v1/storefront/openapi.json` + docs page | CT/BE | 208 | Every §11.3 route documented; the file lives in contracts and is served by the API | todo | |
+| P1-214 | Nightly retention job | BE | 204, 206 | Expired open carts and expired or revoked sessions deleted; checked-out carts kept (BR-096) | todo | |
+| P1-215 | Customer PII purge job | BE | 206, 060 | Purges one customer's PII from `customers`, `orders.customer`, `orders.shipping_address`; catalog untouched; audited (BR-097) | todo | |
+| P1-212 | Reference website from the public docs alone | FE | 213 | A throwaway site outside `new-commerce-web`, using only the docs and a publishable key: product → cart → guest checkout → order lookup, and sign-up → order history | todo | |
 
 ---
 
-## Di luar ruang lingkup Fase 1
+## Phase 4 · Shopee import (weeks 20–23)
 
-Dicatat di sini karena hal-hal ini akan diusulkan berulang kali, dan jawabannya cukup satu tautan.
+M4 for Shopee: OAuth, item import, matching, fill-only merge, images to R2, error report. Depends
+on Shopee partner approval (`P1-080`).
 
-| Permintaan | Fase |
+**Exit:** re-importing a shop creates nothing new and overwrites nothing the owner edited.
+
+| ID | Item | Repo | Depends | Acceptance | Status | Owner |
+|---|---|---|---|---|---|---|
+| P1-300 | `channels`, `channel_listings` schema | BE | 026 | As `03-erd.md` §3.4; a single-variant item cannot be linked twice (`NULLS NOT DISTINCT`) (BR-004, BR-103) | todo | |
+| P1-301 | Credential envelope encryption (KMS) | BE | 300 | AES-256-GCM, key in KMS, decrypted only in the worker; a log-scan test finds no credential bytes (BR-101) | todo | |
+| P1-302 | Adapter interface + Shopee OAuth: connect, callback, disconnect | BE | 301 | As §10; `state` is signed and the only tenant source on callback; disconnect erases credentials and keeps links (BR-003, BR-101) | todo | |
+| P1-303 | Shopee `ListItemIDs` / `GetItems` into `ExternalItem` | BE | 302 | Replayed from recorded fixtures; per-shop token bucket; 5 retries with full jitter (BR-107) | todo | |
+| P1-304 | Import job: lock, match, create, fill-only merge | BE | 303, 060, 049 | Importing twice creates zero new rows; edited description, price, weight and SKU survive; second click returns the running job (BR-100, BR-103, BR-104, BR-105) | todo | |
+| P1-305 | Imported images copied to R2 with derivatives | BE | 304, 044 | No product image URL points at a marketplace domain (BR-106) | todo | |
+| P1-306 | Per-item results and `errors.csv` | BE | 304 | One failing item lands in the report; every other item imports (BR-107) | todo | |
+| P1-307 | Token refresh failure → `reauth_required` | BE | 304 | The job fails with the reason and is not retried; reconnect restores `connected` (BR-102) | todo | |
+| P1-308 | Listings API and unlink | BE | 300 | As §10; after unlink the next import re-matches by SKU or creates (BR-108) | todo | |
+| P1-309 | Channels screens: list, connect, import dialog, result, listings | FE | 302, 306, 308 | Reconnect shown for `reauth_required`; error report downloadable (BR-102, BR-107) | todo | |
+
+---
+
+## Phase 5 · Tokopedia import (weeks 24–25)
+
+M4 for Tokopedia on the same adapter interface. **Conditional:** if Tokopedia access is not
+available by week 20, ship without it and keep the adapter slot open (`01-product-requirements.md`
+§9).
+
+**Exit:** a SKU-matched product appears once, linked to both marketplaces.
+
+| ID | Item | Repo | Depends | Acceptance | Status | Owner |
+|---|---|---|---|---|---|---|
+| P1-400 | Tokopedia adapter: OAuth, list, get, rate limit | BE | 304 | Same six adapter methods; recorded fixtures; no change to the import path (BR-101, BR-107) | todo | |
+| P1-401 | Cross-channel SKU match | BE | 400 | A product on Shopee and Tokopedia with matching seller SKUs is one product with one listing per channel per variant (BR-103) | todo | |
+
+---
+
+## Phase 6 · Production readiness, hardening & pilot (weeks 26–28)
+
+**Production readiness is here on purpose.** The v2 plan puts provisioning in Phase 0. It stays at
+the end, as in v1.6.1: there is still no server and no domain, so `P1-001`'s acceptance has nothing
+to point at, and nothing before the pilot needs a server because the backend runs on the host
+services from `P1-000`. It cannot move any later: `P1-070` puts a real shop on the machine, and that
+must not happen on storage that has never been restored from.
+
+**Exit:** the pilot website takes real orders for 2 weeks.
+
+| ID | Item | Repo | Depends | Acceptance | Status | Owner |
+|---|---|---|---|---|---|---|
+| P1-001 | VPS provisioning, Docker Compose, Caddy, TLS | OPS | — | `docker compose up` serves HTTPS on the domain; two `cmd/api` replicas drain one at a time on deploy | todo | |
+| P1-002 | PostgreSQL 18 + Redis 8 with tuned config and resource limits | OPS | 001 | `shared_buffers` ≈ 25% RAM, `max_connections` 100; `cpus`/`mem_limit` per service; Redis AOF `everysec` | todo | |
+| P1-003 | **pgBackRest to R2 + restore drill** | OPS | 002 | **A restore from R2 into a clean machine succeeds.** RPO 5 min. Gates `P1-070` | todo | |
+| P1-004 | CI: lint, test, migrations on a snapshot, contract drift check | BE/FE | 001 | A PR breaking any of the four is red | todo | |
+| P1-500 | k6 load test | OPS | 001, 203, 205 | Storefront browsing at 10× expected peak with an import running stays within `01-product-requirements.md` §8.1 | todo | |
+| P1-501 | Alerts and traces | OPS/BE | 001 | Every alert in `01-product-requirements.md` §8.5 fires in a drill; checkout and import jobs each appear as one trace | todo | |
+| P1-502 | Runbooks: restore, deploy, key rotation, channel reconnect | OPS | 003 | Each runbook was followed once by someone who did not write it | todo | |
+| P1-070 | **Pilot tenant live** | OPS | 003, 212 | A real shop's catalog is loaded and its website takes real orders for 2 weeks | todo | |
+
+> **`P1-001` needs a decision before it can start:** the production domain. Every document still
+> says `{domain}`. Caddy's default ACME challenge also cannot reach a machine behind the
+> Cloudflare proxy, so the TLS mode (DNS-01 with a Cloudflare token, or a Cloudflare Origin
+> certificate) is part of this item, not an implementation detail.
+
+---
+
+## Dropped in v2
+
+| ID | Item | Why |
+|---|---|---|
+| P1-061 | Catalog export templates for 5 marketplaces | Marketplace CSV export retired (BR-061); v2 imports instead |
+| P1-062 | Export reports incomplete channel mappings | Went with P1-061 (BR-062) |
+| P1-063 | Export screen | Went with P1-061. Order export is `P1-112` |
+| P1-065 | API keys with permission sets | Replaced by publishable/secret keys: `P1-019`, `P1-200` |
+| P1-067 | API keys screen (v1) | Replaced by `P1-201` |
+| P1-069 | "No stock yet" empty state | Stock is out of scope, not coming later (BR-017) |
+
+---
+
+## Definition of Done
+
+An item is `done` when **all** of these hold. Not five of seven.
+
+1. Its Acceptance is proven true, with a test wherever a test is possible.
+2. It matches the contract. If it can't, the contract changes first, in its own commit.
+3. Tenant isolation holds: a new route is covered by `P1-008` (admin) or `P1-211` (storefront).
+4. Errors use the RFC 9457 envelope with `trace_id`.
+5. No server-managed or unknown field is accepted from a client.
+6. `make generate` changes nothing on a clean tree in both repos.
+7. Reviewed by someone who didn't write it.
+
+---
+
+## Out of scope for v2
+
+Recorded here because these will be proposed again and again, and the answer should be one link.
+
+| Request | Answer |
 |---|---|
-| Stok, kuantitas, gudang | 4 |
-| Order, pengiriman, label | 2 |
-| `POST /products/bulk`, impor CSV | 2 |
-| Sinkronisasi API marketplace (ekspor CSV adalah jawaban Fase 1) | 3 |
-| `Idempotency-Key` pada mutasi | 4 |
-| Harga per channel | setelah 4 |
+| Stock, quantities, warehouses, sold-out | No (BR-017) |
+| Marketplace order sync, stock or price push | No; import is products only, pulled (BR-100) |
+| "Update from marketplace" on an edited product | Not by default (BR-104); a per-product action if owners ask |
+| Courier booking, rates, labels | No; record courier and tracking (BR-072) |
+| Returns, RMA | No |
+| Outbound webhooks | No |
+| `Idempotency-Key` on mutations | No; cart idempotency (BR-088) |
+| Payment gateway | Open question, decide before Phase 3 |
+| Promotions engine, discount codes | No |
+| Per-channel pricing | No |
