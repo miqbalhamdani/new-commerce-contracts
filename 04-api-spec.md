@@ -23,7 +23,7 @@ the other, in the same commit.
 | Content type | `application/json; charset=utf-8` |
 | Casing | `snake_case` in JSON, matching the database, so no translation layer can drift |
 | Ids | UUID strings (BR-005). Storefront products are addressed by `slug`, orders by `order_number` |
-| Money | `{"amount": 2000000, "currency": "IDR"}`, integer minor units (BR-006) |
+| Money | A plain integer in minor units: `2000000` is Rp 20.000. Always IDR, so no currency field (BR-006) |
 | Time | RFC 3339 with the WIB offset: `2026-10-06T16:15:00+07:00`. Input must carry an offset, else `422`; a date-only filter means midnight WIB (BR-007) |
 | Server-managed fields | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `*_at` audit stamps, brand `slug`: sending one is `422`, on create and update alike (BR-008) |
 | Unknown fields | `422 unknown_field`, never ignored. In particular, any price field on a cart or checkout route (BR-089) |
@@ -395,7 +395,7 @@ GET /v1/orders?status=paid&status=processing&sort=-placed_at
       "status": "paid", "version": 2,
       "customer": { "name": "Rina", "email": "rina@example.com", "phone": "+6281234567890" },
       "item_count": 2,
-      "total": { "amount": 39800000, "currency": "IDR" },
+      "total": 39800000,
       "placed_at": "2026-10-06T16:15:00+07:00", "paid_at": "2026-10-06T17:02:00+07:00",
       "refunded_at": null } ],
   "next_cursor": "eyJ…" }
@@ -423,16 +423,16 @@ GET /v1/orders/{id}
   "lines": [
     { "id": "0192…", "variant_id": "0192…", "sku": "TS-BLK-M",
       "title": "Erigo Basic Tee — Black / M", "qty": 2,
-      "unit_price": { "amount": 19900000, "currency": "IDR" },
-      "discount": { "amount": 0, "currency": "IDR" } } ],
-  "subtotal": { "amount": 39800000, "currency": "IDR" },
-  "shipping": { "amount": 0, "currency": "IDR" },
-  "discount": { "amount": 0, "currency": "IDR" },
-  "total":    { "amount": 39800000, "currency": "IDR" },
+      "unit_price": 19900000,
+      "discount": 0 } ],
+  "subtotal": 39800000,
+  "shipping": 0,
+  "discount": 0,
+  "total":    39800000,
   "payment_method": "midtrans",
   "payments": [                                         ← Midtrans attempts, newest first
     { "provider_order_id": "ERG-000123", "status": "paid",
-      "transaction_status": "settlement", "amount": { "amount": 39800000, "currency": "IDR" },
+      "transaction_status": "settlement", "amount": 39800000,
       "paid_at": "…", "created_at": "…" } ],
   "shipping_courier": "jne", "shipping_service": "reg",  ← what the shopper chose
   "courier": null, "tracking_number": null,
@@ -441,7 +441,7 @@ GET /v1/orders/{id}
   "allowed_transitions": ["shipped", "cancelled"] }
 
 PATCH /v1/orders/{id}          If-Match: 3
-{ "shipping_address": { … }, "note": "…", "shipping": { "amount": 1500000 } }
+{ "shipping_address": { … }, "note": "…", "shipping": 1500000 }
 200 OK   ← Order, version 4; totals recomputed
 ```
 
@@ -479,17 +479,18 @@ POST /v1/orders
   "customer": { "name": "Dewi", "email": null, "phone": "+6281299990000" },
   "shipping_address": { "line1": "Jl. Kenanga 4", "city": "Surabaya",
                         "province": "Jawa Timur", "postal_code": "60231" },
-  "lines": [ { "variant_id": "0192…", "qty": 1, "discount": { "amount": 2000000 } } ],
-  "shipping": { "amount": 1500000 },
+  "lines": [ { "variant_id": "0192…", "qty": 1, "discount": 2000000 } ],
+  "shipping": 1500000,
   "note": "Order via WhatsApp" }
-                                     ← or "shipping": { "courier_code": "jne", "courier_service_code": "reg" }
+                                     ← or "shipping_option": { "courier_code": "jne", "courier_service_code": "reg" }
 
 201 Created   ← Order, status pending
 ```
 
 Line prices come from `variant_price()` exactly as checkout does (BR-046, BR-078); a `unit_price` in the request
 is `422 unknown_field`. Archived variants are `422` naming the line. `source` must be `manual`.
-`shipping` is either a typed `amount` or a courier choice, which is quoted like checkout (BR-121).
+Send either `shipping` (a typed amount) or `shipping_option` (a courier choice, quoted like
+checkout, BR-121), not both.
 Manual orders are always `bank_transfer`.
 
 #### Shipping rates for a manual order
@@ -684,14 +685,19 @@ GET /v1/products?status=active&category_id=0192-apparel&q=tee&sort=-updated_at
 { "data": [
     { "id": "0192…", "version": 3, "title": "Erigo Basic Tee", "slug": "erigo-basic-tee",
       "status": "active", "brand": { "id": "0192…", "name": "Erigo" },
+      "categories": [ { "id": "0192…", "name": "Tees", "path": "apparel.tees" } ],
       "variant_count": 10,
-      "price_min": { "amount": 19900000, "currency": "IDR" },
-      "price_max": { "amount": 21900000, "currency": "IDR" },
+      "price_min": 19900000,
+      "price_max": 21900000,
       "cover_url": "https://img.{domain}/…/200.webp",
       "updated_at": "2026-10-06T16:15:00+07:00" } ],
   "next_cursor": "eyJ…" }
 ```
 
+- `categories` lists only the product's categories of kind `category` (the main tree), as
+  `{id, name, path}`, sorted by `path`. Series, collections and the other kinds appear in
+  `GET /v1/products/{id}`. An empty array means the product is not in the main tree yet, which is
+  also why it cannot be published (BR-038).
 - `category_id` matches that category **and its descendants**.
 - `q` is a trigram match on `title`; an exact SKU also matches.
 - `sort` accepts `-created_at` (default), `-updated_at` or `title`.
@@ -703,20 +709,20 @@ GET /v1/products?status=active&category_id=0192-apparel&q=tee&sort=-updated_at
 ```json
 POST /v1/products/{id}/variants
 { "option_values": ["Black", "S"], "sku": "TS-BLK-S",
-  "regular_price": { "amount": 19900000 }, "weight_grams": 200 }
+  "regular_price": 19900000, "weight_grams": 200 }
 
 201 Created
 { "id": "0192…", "product_id": "0192b7f0-…", "version": 1,
   "option_values": ["Black", "S"], "sku": "TS-BLK-S", "barcode": null,
-  "regular_price": { "amount": 19900000, "currency": "IDR" },   ← currency defaults to IDR
+  "regular_price": 19900000,   ← currency defaults to IDR
   "sale_price": null, "sale_starts_at": null, "sale_ends_at": null,
-  "price": { "amount": 19900000, "currency": "IDR" },   ← read-only: what a shopper pays now
+  "price": 19900000,   ← read-only: what a shopper pays now
   "on_sale": false,
   "weight_grams": 200,
   "archived_at": null, "created_at": "…", "updated_at": "…" }
 
 PATCH /v1/variants/{id}        If-Match: 1
-{ "sale_price": { "amount": 14900000 },
+{ "sale_price": 14900000,
   "sale_starts_at": "2026-10-10T00:00:00+07:00",
   "sale_ends_at":   "2026-10-13T00:00:00+07:00" }
 200 OK   ← Variant, version 2; price becomes 14900000 on 10 Oct and goes back on 13 Oct
@@ -745,14 +751,14 @@ PUT /v1/products/{id}/variant-matrix      If-Match: 3      ← the PRODUCT's ver
 { "option_names": ["Colour", "Size"],
   "rows": [
     { "option_values": ["Black","S"], "sku": "TS-BLK-S",
-      "regular_price": { "amount": 19900000 }, "weight_grams": 200 },
+      "regular_price": 19900000, "weight_grams": 200 },
     { "option_values": ["Black","M"], "sku": "TS-BLK-M",
-      "regular_price": { "amount": 19900000 }, "weight_grams": 210 },
+      "regular_price": 19900000, "weight_grams": 210 },
     { "option_values": ["Black","XXL"], "sku": "TS-BLK-XXL",
-      "regular_price": { "amount": 21900000 }, "weight_grams": 240 },
+      "regular_price": 21900000, "weight_grams": 240 },
     { "option_values": ["White","S"], "sku": "TS-WHT-S",
-      "regular_price": { "amount": 19900000 },
-      "sale_price": { "amount": 14900000 }, "weight_grams": 200 } ],
+      "regular_price": 19900000,
+      "sale_price": 14900000, "weight_grams": 200 } ],
   "archive_missing": true }
 
 200 OK
@@ -800,9 +806,9 @@ structured data: a multi-select action on the product list, or paste-into-grid. 
 { "on_conflict": "update",
   "items": [
     { "sku": "TS-BLK-S", "status": "active",
-      "regular_price": { "amount": 19900000, "currency": "IDR" } },
+      "regular_price": 19900000 },
     { "sku": "TS-BLK-M", "status": "active",
-      "sale_price": { "amount": 14900000, "currency": "IDR" },
+      "sale_price": 14900000,
       "sale_ends_at": "2026-10-13T00:00:00+07:00" } ] }
 
 200 OK
@@ -855,8 +861,8 @@ sequenceDiagram
 ```json
 POST /v1/products/import
 { "r2_key": "0192-tenant/jobs/0193…/upload.csv",
-  "column_mapping": { "Nama Produk": "title", "SKU": "sku", "Harga": "regular_price.amount",
-                      "Harga Diskon": "sale_price.amount",
+  "column_mapping": { "Nama Produk": "title", "SKU": "sku", "Harga": "regular_price",
+                      "Harga Diskon": "sale_price",
                       "Berat": "weight_grams", "Warna": "option:Colour", "Ukuran": "option:Size" },
   "on_conflict": "update" }
 
@@ -1092,8 +1098,8 @@ GET /v1/storefront/products?category=apparel.tees&sort=-updated_at&limit=24
 { "data": [
     { "slug": "erigo-basic-tee", "title": "Erigo Basic Tee",
       "brand": { "slug": "erigo", "name": "Erigo" },
-      "price_min": { "amount": 19900000, "currency": "IDR" },
-      "price_max": { "amount": 21900000, "currency": "IDR" },
+      "price_min": 19900000,
+      "price_max": 21900000,
       "image": { "url": "https://img.{domain}/…/800.webp",
                  "sizes": { "1600": "…", "800": "…", "200": "…" } } } ],
   "next_cursor": "eyJ…" }
@@ -1118,8 +1124,8 @@ GET /v1/storefront/products/erigo-basic-tee
                 "sizes": { "1600": "…", "800": "…", "200": "…" } } ],
   "variants": [
     { "id": "0192…", "sku": "TS-BLK-S", "option_values": ["Black", "S"],
-      "price": { "amount": 14900000, "currency": "IDR" },          ← what the shopper pays now
-      "regular_price": { "amount": 19900000, "currency": "IDR" },  ← show crossed out when on_sale
+      "price": 14900000,          ← what the shopper pays now
+      "regular_price": 19900000,  ← show crossed out when on_sale
       "on_sale": true,
       "weight_grams": 200 } ],
   "updated_at": "2026-10-06T16:15:00+07:00" }
@@ -1156,7 +1162,7 @@ payment step.
 POST /v1/storefront/carts
 201 Created
 { "cart_id": "7c1e2f0a-…", "items": [], "item_count": 0,
-  "subtotal": { "amount": 0, "currency": "IDR" }, "expires_at": "2026-11-05T16:15:00+07:00" }
+  "subtotal": 0, "expires_at": "2026-11-05T16:15:00+07:00" }
 
 PUT /v1/storefront/carts/{cart_id}/items/{variant_id}
 { "qty": 2 }                       ← sets the quantity; 0 removes the item
@@ -1168,12 +1174,12 @@ GET /v1/storefront/carts/{cart_id}
   "items": [
     { "variant_id": "0192…", "sku": "TS-BLK-M", "title": "Erigo Basic Tee — Black / M",
       "product_slug": "erigo-basic-tee", "option_values": ["Black", "M"], "qty": 2,
-      "unit_price": { "amount": 19900000, "currency": "IDR" },   ← price right now (BR-046, BR-087)
-      "line_total": { "amount": 39800000, "currency": "IDR" },
+      "unit_price": 19900000,   ← price right now (BR-046, BR-087)
+      "line_total": 39800000,
       "image_url": "https://img.{domain}/…/200.webp",
       "available": true } ],
   "item_count": 2,
-  "subtotal": { "amount": 39800000, "currency": "IDR" },        ← available items only
+  "subtotal": 39800000,        ← available items only
   "expires_at": "2026-11-05T16:15:00+07:00" }
 ```
 
@@ -1194,10 +1200,10 @@ POST /v1/storefront/carts/{cart_id}/shipping-rates
   "options": [
     { "courier_code": "jne", "courier_service_code": "reg",
       "courier_name": "JNE", "service_name": "Reguler",
-      "price": { "amount": 1100000, "currency": "IDR" }, "duration": "2 - 3 days" },
+      "price": 1100000, "duration": "2 - 3 days" },
     { "courier_code": "sicepat", "courier_service_code": "reg",
       "courier_name": "SiCepat", "service_name": "Reguler",
-      "price": { "amount": 1000000, "currency": "IDR" }, "duration": "1 - 2 days" } ] }
+      "price": 1000000, "duration": "1 - 2 days" } ] }
 ```
 
 - Quoted by Biteship for the shop's origin and enabled couriers, over the cart's available items
@@ -1213,7 +1219,7 @@ POST /v1/storefront/carts/{cart_id}/shipping-rates
 { "contact": { "name": "Rina", "email": "rina@example.com", "phone": "+6281234567890" },
   "shipping_address": { "line1": "Jl. Melati 12", "line2": null, "city": "Bandung",
                         "province": "Jawa Barat", "postal_code": "40115" },
-  "shipping": { "courier_code": "jne", "courier_service_code": "reg" },
+  "shipping_option": { "courier_code": "jne", "courier_service_code": "reg" },
   "payment_method": "midtrans",
   "note": "Tolong dibungkus kado" }
 ```
@@ -1224,10 +1230,10 @@ POST /v1/storefront/carts/{cart_id}/shipping-rates
   "status": "pending",
   "lines": [
     { "sku": "TS-BLK-M", "title": "Erigo Basic Tee — Black / M", "qty": 2,
-      "unit_price": { "amount": 19900000, "currency": "IDR" } } ],
-  "subtotal": { "amount": 39800000, "currency": "IDR" },
-  "shipping": { "amount": 1100000, "currency": "IDR" },   ← re-quoted on the server (BR-121)
-  "total":    { "amount": 40900000, "currency": "IDR" },
+      "unit_price": 19900000 } ],
+  "subtotal": 39800000,
+  "shipping": 1100000,   ← re-quoted on the server (BR-121)
+  "total":    40900000,
   "shipping_courier": "jne", "shipping_service": "reg",
   "payment_method": "midtrans",
   "payment": { "snap_token": "66e4fa55-…",              ← null for bank_transfer
@@ -1258,7 +1264,7 @@ sequenceDiagram
   and the order goes into their history (BR-095).
 - Unavailable items → `409 item_unavailable` listing them; the cart is untouched (BR-090). Empty
   cart → `422 empty_cart`.
-- `shipping` and `payment_method` are required. A courier service not in the fresh quote is
+- `shipping_option` and `payment_method` are required. A courier service not in the fresh quote is
   `409 shipping_unavailable`; Biteship down is `502 shipping_rates_unavailable` and no order is
   created (BR-121). A method the shop has not enabled is `422` (BR-122).
 - **Midtrans:** the order is created first, then the Snap transaction for its total (BR-123). If
@@ -1331,7 +1337,7 @@ PATCH /v1/storefront/me
 GET /v1/storefront/me/orders?limit=20
 200 OK
 { "data": [ { "order_number": "ERG-000123", "status": "shipped",
-              "total": { "amount": 39800000, "currency": "IDR" }, "item_count": 2,
+              "total": 39800000, "item_count": 2,
               "placed_at": "2026-10-06T16:15:00+07:00" } ],
   "next_cursor": null }
 
@@ -1340,7 +1346,7 @@ GET /v1/storefront/orders/ERG-000123          X-Order-Token: q7Zr…
 200 OK
 { "order_number": "ERG-000123", "status": "shipped",
   "lines": [ … as in checkout … ],
-  "subtotal": { … }, "shipping": { … }, "discount": { … }, "total": { … },
+  "subtotal": 39800000, "shipping": 1100000, "discount": 0, "total": 40900000,
   "shipping_address": { … },
   "payment_method": "midtrans", "payment_status": "paid",   ← pending | paid | failed | null
   "courier": "jne", "tracking_number": "JNE0123456789",

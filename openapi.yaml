@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 2.3.0
+  version: 2.4.0
   description: |
     Ecommerce Backoffice v2 — the admin API (`/v1`). The storefront API (`/v1/storefront`) is
     published as its own document, `/v1/storefront/openapi.json`, built by `P1-213`.
@@ -341,24 +341,13 @@ components:
             examples: ["products:read"]
 
     Money:
-      type: object
+      type: integer
+      format: int64
       description: |
-        An integer amount in **minor units** plus an ISO 4217 currency. `2000000` + `IDR` is
-        Rp 20.000.
-
-        Never a float and never a decimal string. IDR has no minor unit in practice, but the
-        scale of 2 is kept uniform so multi-currency is not a migration.
-      required: [amount, currency]
-      properties:
-        amount:
-          type: integer
-          format: int64
-          examples: [19900000]
-        currency:
-          type: string
-          minLength: 3
-          maxLength: 3
-          examples: ["IDR"]
+        An amount in **minor units**, always IDR: `2000000` is Rp 20.000. A plain integer, never
+        a float, a decimal string or an object; there is no currency field because there is only
+        one currency (BR-006, BR-029). Clients divide by 100 to display.
+      examples: [19900000]
 
     ErrorCode:
       type: string

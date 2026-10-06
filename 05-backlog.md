@@ -86,7 +86,7 @@ needs them.
 | P1-027 | `product_categories` join, multi-`kind` membership | BE | 022, 025 | One product in 3 trees of different kinds at once; a cross-tenant link is refused (BR-004, BR-031) | todo | |
 | P1-028 | Product CRUD, `If-Match`, slug, server-managed fields refused | BE | 025, 027 | As §7.1; changing the title never changes the slug (BR-008, BR-009, BR-010, BR-012, BR-042) | todo | |
 | P1-029 | Variant CRUD | BE | 026 | As §7.2; a duplicate SKU → `409 duplicate_sku` naming the holder; `regular_price`, `sale_price` and schedule writable, `price`/`on_sale` read-only (BR-039, BR-046) | todo | |
-| P1-030 | Product list: trigram search, filters, cursor pagination | BE | 028 | p95 < 600 ms with 10k products; `category_id` includes descendants; exact SKU matches | todo | |
+| P1-030 | Product list: trigram search, filters, cursor pagination | BE | 028 | p95 < 600 ms with 10k products, categories included; each row lists its main-tree (`kind = category`) categories; `category_id` includes descendants; exact SKU matches | todo | |
 | P1-060 | Job runner (Redis Streams) + `jobs` table + `GET /v1/jobs/{id}` | BE | 007 | As §9 and `03-erd.md` §3.2; a job killed mid-run is redelivered and finishes once (BR-060, BR-063) | todo | |
 | P1-040 | `PUT /variant-matrix`: server-side diff, one transaction | BE | 029 | As §7.3: created, updated, restored and archived counted correctly (BR-040, BR-041) | todo | |
 | P1-041 | Partial-failure semantics in the matrix | BE | 040 | One duplicate SKU fails only its row; the rest save; 100 cells save in < 2 s (BR-041) | todo | |
@@ -99,7 +99,7 @@ needs them.
 | P1-073 | CSV import job: server-side parse, column mapping, `errors.csv` | BE | 060, 072 | 10,000 variants in < 5 min; `,` and `;` delimiters and BOM handled; every error cites its original line number (BR-044) | todo | |
 | P1-031 | Brand manager screen | FE | 021 | `01-product-requirements.md` §4 | todo | |
 | P1-032 | Category manager: tree, drag-to-move, confirmation dialog | FE | 024 | The move dialog states descendant and product counts (BR-033) | todo | |
-| P1-033 | Product list screen: search, filters, saved state | FE | 030 | Filters survive navigation and reload | todo | |
+| P1-033 | Product list screen: search, filters, saved state | FE | 030 | A Category column shows each product's main-tree categories; filters survive navigation and reload | todo | |
 | P1-034 | Product editor: fields, slug, brand picker, category multi-select | FE | 028 | Unsaved-changes prompt; editing a slug warns that old links break (BR-042) | todo | |
 | P1-046 | **Variant matrix editor**: grid, paste from Excel, fill-down | FE | 040 | A 2×5 grid renders 10 cells and saves in one request; a failed row is highlighted with its error (BR-041) | todo | |
 | P1-047 | Bulk price adjustment in the matrix (± amount / %) | FE | 046 | Applies to regular or sale price, chosen by the user; a preview shows before it applies (BR-046) | todo | |

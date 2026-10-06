@@ -69,12 +69,18 @@ timestamp.
 *Why:* time-ordered UUIDs keep B-tree inserts at the end of the index; sequential ids leak
 business volume.
 
-### BR-006 Money is an integer amount plus a currency
-`{"amount": <bigint minor units>, "currency": "IDR"}`, never a float or a decimal string. An
-omitted `currency` means `IDR` (BR-029).
+### BR-006 Money is an integer in minor units
+- **In the database:** `bigint` minor units plus a `char(3)` currency column, which is always
+  `IDR` (BR-029).
+- **On the wire:** a plain integer in minor units, no currency field: `"total": 39800000` is
+  Rp 398.000. Every amount in every request and response has this one shape.
+- IDR has no cents in practice, but the scale of 2 is kept: clients divide by 100 to display.
+- Midtrans and Biteship speak whole rupiah: the API divides by 100 when sending to them and
+  multiplies by 100 when reading from them (BR-120, BR-123).
 
-*Why:* floats lose cents. Keeping a scale of 2 for IDR means adding another currency needs no
-migration.
+*Why:* floats lose cents. One integer shape everywhere means no client ever has to handle two
+money formats. The currency column and the scale stay in the database so that adding a currency
+later is a feature, not a migration.
 
 ### BR-007 Time is WIB (UTC+7) on the wire and in the database
 - **Column type:** always `timestamptz`, never `timestamp`. It stores an exact instant, so no value
@@ -287,7 +293,7 @@ change tenant settings.
 
 **IDR only.** Every amount is IDR and `currency` cannot be changed; there is no multi-currency and
 no cross-border selling. Tenants have no currency setting. The `currency` on money columns and
-the scale of 2 stay (BR-006) so that adding a
+the scale of 2 stay in the database (BR-006) so that adding a
 currency later is a feature, not a migration.
 
 ---
@@ -773,7 +779,7 @@ it. One order has at most one live attempt.
    tenant's server key, else `401` and nothing changes.
 2. Midtrans' Get Status API confirms the status before anything is written.
 
-Then `gross_amount` must equal the attempt's amount, else the attempt is flagged for an operator
+Then `gross_amount` (whole rupiah, so ×100 before comparing, BR-006) must equal the attempt's amount, else the attempt is flagged for an operator
 and the order is not marked paid. A verified notification is answered `200` even when it changes
 nothing, so Midtrans stops retrying. The notification URL is set on each transaction
 (`X-Override-Notification`), so owners do not have to configure it.
