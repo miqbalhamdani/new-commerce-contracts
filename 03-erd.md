@@ -60,7 +60,7 @@ These hold for every table.
   (BR-006).
 - **Quantities** are `integer` and appear only on cart items and order lines. There is no quantity
   on `variants`, ever (BR-017).
-- **Timestamps** are `timestamptz`, always UTC (BR-007).
+- **Timestamps** are `timestamptz`, never `timestamp`; every session runs with `TimeZone = 'Asia/Jakarta'` (WIB) (BR-007).
 - **Archive, don't delete** via `archived_at timestamptz` on brands, categories, products and
   variants (BR-012). Orders are never deleted, only cancelled (BR-079).
 - **Optimistic concurrency** via `version integer NOT NULL DEFAULT 1` on brands, categories,

@@ -24,7 +24,7 @@ the other, in the same commit.
 | Casing | `snake_case` in JSON, matching the database, so no translation layer can drift |
 | Ids | UUID strings (BR-005). Storefront products are addressed by `slug`, orders by `order_number` |
 | Money | `{"amount": 2000000, "currency": "IDR"}`, integer minor units (BR-006) |
-| Time | RFC 3339 with offset, always UTC: `2026-10-06T09:15:00Z` (BR-007) |
+| Time | RFC 3339 with the WIB offset: `2026-10-06T16:15:00+07:00`. Input must carry an offset, else `422`; a date-only filter means midnight WIB (BR-007) |
 | Server-managed fields | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `*_at` audit stamps, brand `slug`: sending one is `422`, on create and update alike (BR-008) |
 | Unknown fields | `422 unknown_field`, never ignored. In particular, any price field on a cart or checkout route (BR-089) |
 | Omitted vs `null` | Create: omitted takes the default, `null` is `422`. `PATCH`: omitted is unchanged, `null` clears a nullable field (BR-009) |
@@ -261,7 +261,7 @@ GET /v1/storefront-settings
   "midtrans_client_key": "Mid-client-…",
   "midtrans_server_key_set": true,                 ← the key itself is never returned (BR-129)
   "midtrans_notification_url": "https://api.{domain}/v1/webhooks/midtrans/5b0e…",
-  "updated_at": "2026-10-06T09:15:00Z" }
+  "updated_at": "2026-10-06T16:15:00+07:00" }
 
 PATCH /v1/storefront-settings
 { "midtrans_server_key": "Mid-server-…", "midtrans_enabled": true }
@@ -296,7 +296,7 @@ GET /v1/users?status=invited
 200 OK
 { "data": [
     { "id": "0192…", "email": "rina@erigo.co.id", "name": "Rina", "role": "ops",
-      "status": "invited", "last_login_at": null, "created_at": "2026-10-06T09:15:00Z" } ],
+      "status": "invited", "last_login_at": null, "created_at": "2026-10-06T16:15:00+07:00" } ],
   "next_cursor": null }
 
 POST /v1/users/invite
@@ -331,7 +331,7 @@ POST /v1/api-keys
   "key": "pk_live_3f9a91c2e8…",           ← shown exactly once; never retrievable again
   "allowed_origins": ["https://tokoabc.com", "https://www.tokoabc.com"],
   "created_by": { "id": "0192…", "name": "Budi" },
-  "last_used_at": null, "revoked_at": null, "created_at": "2026-10-06T09:15:00Z" }
+  "last_used_at": null, "revoked_at": null, "created_at": "2026-10-06T16:15:00+07:00" }
 
 GET /v1/api-keys
 200 OK
@@ -359,7 +359,7 @@ GET /v1/audit-log?subject_type=order&subject_id=0192…
       "actor": { "id": "0192…", "name": "Budi" },
       "subject_type": "order", "subject_id": "0192…",
       "before": { "status": "paid" }, "after": { "status": "processing" },
-      "ip": "203.0.113.7", "created_at": "2026-10-06T09:15:00Z" } ],
+      "ip": "203.0.113.7", "created_at": "2026-10-06T16:15:00+07:00" } ],
   "next_cursor": null }
 ```
 
@@ -397,7 +397,7 @@ GET /v1/orders?status=paid&status=processing&sort=-placed_at
       "customer": { "name": "Rina", "email": "rina@example.com", "phone": "+6281234567890" },
       "item_count": 2,
       "total": { "amount": 39800000, "currency": "IDR" },
-      "placed_at": "2026-10-06T09:15:00Z", "paid_at": "2026-10-06T10:02:00Z",
+      "placed_at": "2026-10-06T16:15:00+07:00", "paid_at": "2026-10-06T17:02:00+07:00",
       "refunded_at": null } ],
   "next_cursor": "eyJ…" }
 ```
@@ -509,7 +509,7 @@ GET /v1/customers?q=rina
 200 OK
 { "data": [ { "id": "0192…", "name": "Rina", "email": "rina@example.com",
               "phone": "+6281234567890", "order_count": 3,
-              "created_at": "2026-10-06T09:15:00Z" } ],
+              "created_at": "2026-10-06T16:15:00+07:00" } ],
   "next_cursor": null }
 
 GET /v1/customers/{id}
@@ -556,7 +556,7 @@ POST /v1/brands
 
 201 Created
 { "id": "0192…", "version": 1, "name": "Erigo", "slug": "erigo", "archived_at": null,
-  "created_at": "2026-10-06T09:15:00Z", "updated_at": "2026-10-06T09:15:00Z" }
+  "created_at": "2026-10-06T16:15:00+07:00", "updated_at": "2026-10-06T16:15:00+07:00" }
 
 PATCH /v1/brands/{id}          If-Match: 1
 { "name": "Erigo Apparel" }
@@ -647,7 +647,7 @@ Only what the user supplied: `status`, `slug` and `version` are **absent**, not 
   "variant_count": 0,
   "media": [],                                        ← Media objects in position order (§8)
   "archived_at": null,
-  "created_at": "2026-10-06T09:15:00Z", "updated_at": "2026-10-06T09:15:00Z" }
+  "created_at": "2026-10-06T16:15:00+07:00", "updated_at": "2026-10-06T16:15:00+07:00" }
 ```
 
 `GET /v1/products/{id}` returns the same body.
@@ -686,7 +686,7 @@ GET /v1/products?status=active&category_id=0192-apparel&q=tee&sort=-updated_at
       "price_min": { "amount": 19900000, "currency": "IDR" },
       "price_max": { "amount": 21900000, "currency": "IDR" },
       "cover_url": "https://img.{domain}/…/200.webp",
-      "updated_at": "2026-10-06T09:15:00Z" } ],
+      "updated_at": "2026-10-06T16:15:00+07:00" } ],
   "next_cursor": "eyJ…" }
 ```
 
@@ -886,7 +886,7 @@ Uploads go **straight from the browser to R2**; bytes never transit the API (BR-
      "position": 0,
      "url": "https://img.{domain}/0192-tenant/products/0192…/9f2c….jpg",
      "derivatives": {},                     ← filled by the worker within ~15 s (BR-052)
-     "created_at": "2026-10-06T09:15:00Z" }
+     "created_at": "2026-10-06T16:15:00+07:00" }
 ```
 
 - **Presign.** `purpose` is `product_image` (JPEG, PNG, WebP up to 20 MB) or `product_import`
@@ -929,7 +929,7 @@ GET /v1/jobs/{id}
 { "id": "0193…", "kind": "product_import",
   "state": "done",                          ← queued | running | done | failed
   "processed": 10000, "total": 10000, "failed": 88,
-  "created_at": "2026-10-06T09:15:00Z", "finished_at": "2026-10-06T09:18:41Z",
+  "created_at": "2026-10-06T16:15:00+07:00", "finished_at": "2026-10-06T16:18:41+07:00",
   "result": {
     "created": 412, "updated": 9500,
     "error_report_url": "https://…", "expires_in": 900 },   ← null when nothing failed
@@ -961,7 +961,7 @@ GET /v1/channels
 { "data": [
     { "id": "0192…", "kind": "shopee", "name": "Erigo Official Shop",
       "external_shop_id": "123456", "status": "connected",
-      "last_imported_at": "2026-10-06T09:15:00Z", "last_error": null,
+      "last_imported_at": "2026-10-06T16:15:00+07:00", "last_error": null,
       "listing_count": 412, "running_job_id": null } ] }
 
 POST /v1/channels/shopee/connect
@@ -996,7 +996,7 @@ GET /v1/channels/{id}/listings?q=TS-BLK
 { "data": [
     { "id": "0192…", "external_item_id": "2310044", "external_model_id": "88001",
       "variant": { "id": "0192…", "sku": "TS-BLK-S", "title": "Erigo Basic Tee — Black / S" },
-      "last_imported_at": "2026-10-06T09:15:00Z" } ],
+      "last_imported_at": "2026-10-06T16:15:00+07:00" } ],
   "next_cursor": null }
 
 DELETE /v1/channel-listings/{id}
@@ -1102,7 +1102,7 @@ GET /v1/storefront/products/erigo-basic-tee
     { "id": "0192…", "sku": "TS-BLK-S", "option_values": ["Black", "S"],
       "price": { "amount": 19900000, "currency": "IDR" },
       "compare_at_price": null, "weight_grams": 200 } ],
-  "updated_at": "2026-10-06T09:15:00Z" }
+  "updated_at": "2026-10-06T16:15:00+07:00" }
 ```
 
 A draft, archived or unknown slug is `404`. No field outside the storefront views appears (BR-081).
@@ -1136,7 +1136,7 @@ payment step.
 POST /v1/storefront/carts
 201 Created
 { "cart_id": "7c1e2f0a-…", "items": [], "item_count": 0,
-  "subtotal": { "amount": 0, "currency": "IDR" }, "expires_at": "2026-11-05T09:15:00Z" }
+  "subtotal": { "amount": 0, "currency": "IDR" }, "expires_at": "2026-11-05T16:15:00+07:00" }
 
 PUT /v1/storefront/carts/{cart_id}/items/{variant_id}
 { "qty": 2 }                       ← sets the quantity; 0 removes the item
@@ -1154,7 +1154,7 @@ GET /v1/storefront/carts/{cart_id}
       "available": true } ],
   "item_count": 2,
   "subtotal": { "amount": 39800000, "currency": "IDR" },        ← available items only
-  "expires_at": "2026-11-05T09:15:00Z" }
+  "expires_at": "2026-11-05T16:15:00+07:00" }
 ```
 
 - An unknown, expired or checked-out cart id is `404`.
@@ -1212,8 +1212,8 @@ POST /v1/storefront/carts/{cart_id}/shipping-rates
   "payment_method": "midtrans",
   "payment": { "snap_token": "66e4fa55-…",              ← null for bank_transfer
                "redirect_url": "https://app.midtrans.com/snap/v4/redirection/66e4fa55-…",
-               "expires_at": "2026-10-07T09:15:00Z" },
-  "placed_at": "2026-10-06T09:15:00Z",
+               "expires_at": "2026-10-07T16:15:00+07:00" },
+  "placed_at": "2026-10-06T16:15:00+07:00",
   "order_token": "q7Zr…" }                ← guests only; send as X-Order-Token (BR-091)
 ```
 
@@ -1312,7 +1312,7 @@ GET /v1/storefront/me/orders?limit=20
 200 OK
 { "data": [ { "order_number": "ERG-000123", "status": "shipped",
               "total": { "amount": 39800000, "currency": "IDR" }, "item_count": 2,
-              "placed_at": "2026-10-06T09:15:00Z" } ],
+              "placed_at": "2026-10-06T16:15:00+07:00" } ],
   "next_cursor": null }
 
 GET /v1/storefront/me/orders/ERG-000123
@@ -1338,7 +1338,7 @@ GET /v1/storefront/orders/ERG-000123          X-Order-Token: q7Zr…
 POST /v1/storefront/orders/ERG-000123/payment     Authorization or X-Order-Token
 200 OK
 { "snap_token": "7a01…", "redirect_url": "https://app.midtrans.com/snap/v4/redirection/7a01…",
-  "expires_at": "2026-10-07T11:00:00Z" }
+  "expires_at": "2026-10-07T18:00:00+07:00" }
 ```
 
 - Returns the live attempt's link, or creates a new attempt if the last one failed or expired

@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 2.1.0
+  version: 2.2.0
   description: |
     Ecommerce Backoffice v2 — the admin API (`/v1`). The storefront API (`/v1/storefront`) is
     published as its own document, `/v1/storefront/openapi.json`, built by `P1-213`.
@@ -319,7 +319,7 @@ components:
           type: string
         timezone:
           type: string
-          description: IANA name. Applied at render time only; the wire is always UTC.
+          description: IANA name. Display only; the wire is always WIB, `+07:00` (BR-007).
           examples: ["Asia/Jakarta"]
         currency:
           type: string

@@ -76,9 +76,22 @@ omitted `currency` takes the tenant's currency (BR-029).
 *Why:* floats lose cents. Keeping a scale of 2 for IDR means adding another currency needs no
 migration.
 
-### BR-007 Time is UTC on the wire and in the database
-`timestamptz` in UTC; RFC 3339 with offset on the wire. The tenant's time zone is applied at
-render time only.
+### BR-007 Time is WIB (UTC+7) on the wire and in the database
+- **Column type:** always `timestamptz`, never `timestamp`. It stores an exact instant, so no value
+  is ever ambiguous.
+- **Database:** every connection sets `TimeZone = 'Asia/Jakarta'`, so `now()`, query output,
+  `date_trunc` and date boundaries are WIB.
+- **Wire:** RFC 3339 with the `+07:00` offset: `2026-10-06T16:15:00+07:00`, never `Z`.
+- **Input:** any timestamp a client sends must carry an offset. Any offset is accepted and stored
+  as the same instant; a timestamp without one is `422`.
+- **Dates:** a date-only filter (`2026-10-01`) means midnight WIB.
+
+A shop whose own `timezone` is not WIB (Makassar, Jayapura) still gets WIB from the API; the admin
+converts to the shop's zone only for display.
+
+*Why WIB:* the owners, shoppers and staff are in Indonesia. Reading `+07:00` in a response, a log
+or a database session matches their clock with no mental arithmetic. `timestamptz` keeps the
+instant exact, so the choice of zone is presentation only.
 
 ### BR-008 Server-managed fields are never accepted
 `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, any `*_at` audit timestamp, and
@@ -775,7 +788,7 @@ client IDs are public by design and are returned.
 | 002 | every request | P1-007 |
 | 003 | staff login, API key resolution, Midtrans webhook | P1-008, P1-011, P1-202, P1-221 |
 | 004 | `variants`, `order_lines`, `cart_items`, … | P1-020, P1-026, P1-100, P1-204 |
-| 005–007 | every payload | P1-028 |
+| 005–007 | every payload | P1-028, P1-081 |
 | 008–009 | every create and `PATCH` | P1-024, P1-028 |
 | 010 | `PATCH` on versioned rows | P1-021, P1-024, P1-028, P1-029, P1-104 |
 | 011 | every error | P1-013 |

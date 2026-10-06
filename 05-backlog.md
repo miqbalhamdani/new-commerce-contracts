@@ -59,6 +59,7 @@ exists in 18 can never reach a 16 server (`P1-002`). Revisit only once the machi
 | P1-017 | Four roles: drop `warehouse`, v2 permission matrix | BE/FE | 012 | Migration removes `warehouse` from the `users.role` CHECK and fails loudly if any user holds it; seeded permissions equal §3; `GET /v1/roles` returns four; generated clients pick up the enum from contracts `v2.0.0` (BR-023) | todo | |
 | P1-018 | `audit_log` table and recorder | BE | 007 | As `03-erd.md` §3.2. Every mutating admin route writes exactly one row in the same transaction, none if it rolls back; asserted over every registered mutating route (BR-018) | todo | |
 | P1-019 | `api_keys` v2 shape and `resolve_api_key` | BE | 010 | As `03-erd.md` §3.2: `kind`, `prefix`, `allowed_origins` and the CHECK added, `permissions` dropped; `resolve_api_key` is `SECURITY DEFINER` and returns only its five columns (BR-003, BR-028) | todo | |
+| P1-081 | Time in WIB everywhere | BE | 007, 013 | The pool sets `TimeZone = 'Asia/Jakarta'` on every connection; every JSON timestamp ends in `+07:00`; a timestamp sent without an offset → `422`; a test asserts no response contains a `Z` timestamp (BR-007) | todo | |
 
 ---
 
