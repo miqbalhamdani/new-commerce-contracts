@@ -42,7 +42,7 @@ tenants on a request path, each through its own `SECURITY DEFINER` function that
 what it must:
 
 - staff login: `id, tenant_id, password_hash, status, role`;
-- API key resolution: `id, tenant_id, kind, allowed_origins, revoked_at`;
+- API key resolution: `id, tenant_id, allowed_origin, revoked_at`;
 - Midtrans notification: `webhook_id` → `tenant_id`, encrypted server key, environment. The tenant
   is trusted only after the notification's signature verifies with that key (BR-124).
 
@@ -71,7 +71,7 @@ business volume.
 
 ### BR-006 Money is an integer amount plus a currency
 `{"amount": <bigint minor units>, "currency": "IDR"}`, never a float or a decimal string. An
-omitted `currency` takes the tenant's currency (BR-029).
+omitted `currency` means `IDR` (BR-029).
 
 *Why:* floats lose cents. Keeping a scale of 2 for IDR means adding another currency needs no
 migration.
@@ -111,11 +111,14 @@ verbs means there is nothing to remember.
 has to guess.
 
 ### BR-010 Concurrent edits are caught, not overwritten
-Products, variants, brands, categories and orders carry `version`. Every `PATCH` to them, and
-`PUT` on the variant matrix, requires `If-Match: <version>`; a stale version returns
-`409 version_conflict`. `version` travels only in the header, never in the body. Settings, users,
-media and API keys have no `version` and their `PATCH` takes no `If-Match`: edits there are rare
-and single-field, so last-write-wins does no harm.
+Products, variants and orders carry `version`. Every `PATCH` to them, and `PUT` on the variant
+matrix, requires `If-Match: <version>`; a stale version returns `409 version_conflict`. `version`
+travels only in the header, never in the body.
+
+Settings, users, media, API keys, brands and categories have no `version`, and their `PATCH` takes
+no `If-Match`: the last save wins. Edits there are rare, small (a name, a move in a tree the
+database keeps consistent on its own, BR-032) and made by an owner or admin, so a lost edit is
+cheap to notice and redo.
 
 ### BR-011 Errors have one shape and are traceable
 Every error is RFC 9457 `application/problem+json` and carries `trace_id`, the OpenTelemetry trace
@@ -145,8 +148,8 @@ default rather than leaked by default.
 | Caller | Limit | Where |
 |---|---|---|
 | Admin session (staff JWT) | 600 req/min per user | Redis sliding window |
-| Publishable key | 120 req/min per IP, 3,000 req/min per key | Cloudflare edge + Redis |
-| Secret key | 600 req/min per key, burst 100 | Redis sliding window |
+| API key, browser request (has `Origin`) | 120 req/min per IP, 3,000 req/min per key | Cloudflare edge + Redis |
+| API key, server request (no `Origin`) | 600 req/min per key per IP, burst 100 | Redis sliding window |
 | Login and password reset (staff and customer) | 10 per 15 min per email, 30 per 15 min per IP | Redis |
 | Checkout | 10 per min per IP | Redis |
 | Background jobs | 10 concurrent per tenant, 1 import per channel (BR-100) | Queue depth check + lock |
@@ -259,23 +262,32 @@ active owner of a tenant cannot be disabled or demoted.
 *Why:* without the owner guard, a tenant could lock itself out of its own settings.
 
 ### BR-028 API keys
-- Two kinds: **publishable** (`pk_live_…`), which ships in a website's browser code, and
-  **secret** (`sk_live_…`), for a website's own server. Both reach the same storefront routes
-  (BR-082). They never authenticate admin routes.
-- A publishable key must have at least one allowed origin (BR-083). A secret key ignores origins.
+- **One kind of key** (`sf_live_…`). The same key works from the shop's website in a browser and
+  from the website's own server (BR-083). It reaches only storefront routes and never
+  authenticates admin routes.
+- A key has exactly one allowed origin: the website's URL, `https://tokoabc.com`.
 - Keys are stored as SHA-256 hashes, and the plaintext is shown **exactly once**, at creation.
-- Lists show only the prefix (`pk_live_3f9a`), enough to tell keys apart.
-- A key's name and allowed origins can be edited; its kind cannot. Keys are revoked, never
-  deleted.
+  Nothing else about the key is stored: lists show its name and allowed origin, which is how keys
+  are told apart.
+- A key's name and allowed origin can be edited. Keys are revoked, never deleted.
+- A website served from two origins (`tokoabc.com` and `www.tokoabc.com`), or a staging site,
+  gets one key per origin. Each is revoked on its own.
 
-*Why:* a key that could be read back is a key that leaks from a screenshot of the admin.
+*Why one kind:* the key can only reach public data, carts and checkout; personal data always
+needs a customer or order token (BR-082). Two kinds (one for browsers, one for servers) would
+make every owner work out how their website is built before creating a key, for almost no gain in
+protection. A server-only key comes back if a server-only capability ever does.
+
+*Why read-once:* a key that could be read back is a key that leaks from a screenshot of the
+admin.
 
 ### BR-029 Tenant defaults
 A new tenant defaults to time zone `Asia/Jakarta` without anyone choosing. Only the owner can
 change tenant settings.
 
 **IDR only.** Every amount is IDR and `currency` cannot be changed; there is no multi-currency and
-no cross-border selling. The `currency` columns and the scale of 2 stay (BR-006) so that adding a
+no cross-border selling. Tenants have no currency setting. The `currency` on money columns and
+the scale of 2 stay (BR-006) so that adding a
 currency later is a feature, not a migration.
 
 ---
@@ -327,7 +339,7 @@ Deleting a category that has children or assigned products is rejected with
 ### BR-038 Publish check
 Moving a product from `draft` to `active` requires:
 1. every unarchived variant has a SKU;
-2. every unarchived variant has a price greater than zero;
+2. every unarchived variant has a regular price greater than zero (BR-046);
 3. every unarchived variant has a weight greater than zero (shipping rates need it, BR-120);
 4. at least one image;
 5. at least one category of kind `category`.
@@ -384,6 +396,28 @@ number** and reason for every failed row.
 *Why:* client-side parsing means two parsers that must agree on delimiter, encoding, BOM and
 Excel's locale quirks (`;` separators and `,` decimals in an Indonesian export), 10–20 MB of JSON
 over a mobile connection, and lost line numbers.
+
+### BR-046 Sale prices (WooCommerce-style)
+Each variant has a **regular price** and an optional **sale price**, with an optional schedule
+(`sale_starts_at`, `sale_ends_at`).
+
+- **What the shopper pays** is the sale price while a sale is active, otherwise the regular price.
+  A sale is active when the sale price is set and the current time is inside its schedule; an
+  empty start or end means "open" on that side.
+- That decision lives in **one database function, `variant_price()`**. Carts, checkout, manual
+  orders, shipping item values and Midtrans amounts all go through it; no code reads the two
+  columns to work out a price on its own.
+- A sale price is always **lower** than the regular price, else `422`. A schedule's end is after
+  its start.
+- A scheduled sale starts and ends by itself: the price is worked out at the moment it is read,
+  with no job to run. The price is frozen per line at checkout (BR-076), so a sale ending after
+  checkout changes nothing on that order.
+- When a sale is active, the storefront returns both prices and `on_sale: true`, so the website can
+  show the regular price crossed out.
+- Removing a sale is setting the sale price to `null`.
+
+*Why one function:* the risk of a two-price model is one forgotten place that charges the regular
+price to a shopper who saw the sale price. With one function, there is no second place to forget.
 
 ### BR-045 Archiving never touches order history
 Archiving a product or variant removes it from the storefront and from new carts and checkouts,
@@ -509,7 +543,7 @@ Each order gets a human reference unique per tenant, `{tenant prefix}-{6-digit s
 (`TKA-000123`), from a per-tenant sequence. Gaps are allowed; reuse is not.
 
 ### BR-078 Manual orders are priced from the catalog
-Manual (WhatsApp) orders are built from variant prices exactly as checkout is; an operator may add
+Manual (WhatsApp) orders are priced by `variant_price()` exactly as checkout is (BR-046); an operator may add
 a per-line discount, and may set `shipping_amount`. A manual order has no cart; the admin UI
 disables submit while the request is in flight.
 
@@ -547,24 +581,24 @@ internal notes or staff identities cannot leak through a careless `SELECT *`. Wi
 No route under `/v1/storefront/me` or `/v1/storefront/orders` answers with an API key alone
 (`401 customer_auth_required`).
 
-### BR-083 Publishable keys are origin-checked
-A publishable key is accepted only when the request's `Origin` exactly matches one of its
-`allowed_origins` (scheme + host + port); otherwise `403 origin_not_allowed`, with no
-`Access-Control-Allow-Origin` header. CORS responses echo the matched origin, never `*`, and add
-`Vary: Origin`. Preflight (`OPTIONS`) carries no key and is answered for any origin; the real
-request is where the check happens.
+### BR-083 The key is checked by where the request comes from
+- **From a browser** (the request has an `Origin` header): `Origin` must exactly match the key's
+  `allowed_origin` (scheme + host + port), else `403 origin_not_allowed` with no
+  `Access-Control-Allow-Origin` header. CORS responses echo the matched origin, never `*`, and add
+  `Vary: Origin`.
+- **From a server** (no `Origin`): accepted. Rate limits are per key and per IP (BR-014).
+- Preflight (`OPTIONS`) carries no key and is answered for any origin; the real request is where
+  the check happens.
 
-*Why:* browsers set `Origin` and page scripts cannot change it, so this stops a stranger's
-website using the owner's key. It does not stop curl, and doesn't need to: a publishable key
-reaches only what any visitor could already see.
+*Why:* browsers always send `Origin` on these requests and page scripts cannot change it, so a
+stranger's website cannot use the owner's key in its visitors' browsers. A script or a server can
+send anything it likes, and that is acceptable: the key reaches only what any visitor could
+already see. The per-IP part of the server limit keeps someone scraping with a copied key from
+using up the limit of the shop's own server.
 
-### BR-084 A secret key in a browser is refused loudly
-A secret key on a request carrying `Sec-Fetch-Site` gets `403 secret_key_in_browser`. Secret keys
-skip the origin check and are limited per key, not per IP.
-
-*Why:* only browsers send fetch-metadata headers and pages cannot forge them, so this means the
-secret key was shipped in front-end code. Failing loudly is how the website's developer finds out
-before anyone else does.
+### BR-084 *Retired in v2.3*
+Was "a secret key in a browser is refused loudly". There is one kind of key now (BR-028), so
+there is no secret key to leak into a browser.
 
 ### BR-085 Revoked keys stop working within 60 seconds
 Key resolution is cached for at most 60 s.
@@ -576,7 +610,7 @@ Staff tokens (`aud = admin`) are rejected on storefront routes, and customer tok
 
 ### BR-087 Carts
 - A cart's id is a random UUID v4 (BR-005); holding it is the permission to read and edit the cart.
-- A cart stores no prices. It always shows today's price from the catalog; the price is frozen only
+- A cart stores no prices. It always shows the price right now (BR-046); the price is frozen only
   on order lines at checkout.
 - Adding a variant already in the cart sets its quantity. Quantity is 1–999; `0` removes the item.
 - Only visible variants can be added (BR-080).
@@ -591,7 +625,7 @@ Checkout locks the cart row first, so two checkouts of the same cart serialise. 
 shopper's side both taps "worked".
 
 ### BR-089 Prices are computed on the server, always
-The checkout request has no price field. Item totals come from `variants.price_amount` at the
+The checkout request has no price field. Item totals come from `variant_price()` (BR-046) at the
 moment of checkout, and shipping comes from the server's own Biteship quote (BR-121). Any unknown field, a price field in particular, is rejected with `422 unknown_field`,
 never ignored, on every storefront route.
 
@@ -641,7 +675,8 @@ sessions. Checked-out carts are kept: `orders.cart_id` references them, and that
 checkout guarantee (BR-088).
 
 ### BR-097 Customer PII can be purged
-Shopper PII lives only in `customers`, `orders.customer` and `orders.shipping_address`. A
+Shopper PII lives only in `customers`, `customer_identities`, `orders.customer` and
+`orders.shipping_address`. A
 customer's deletion request, or a tenant deletion, can purge it without touching catalog data.
 
 *Why:* Indonesia's PDP law gives data subjects that right; it must be a job, not a migration.
@@ -675,7 +710,8 @@ Each marketplace model is matched to a variant; the first rule that hits wins:
 
 ### BR-104 After the first import, the backoffice owns the data
 A re-import creates what is new and fills fields that are empty. It never changes a field that
-already has a value: description, attributes (existing keys win), SKU, price and weight.
+already has a value: description, attributes (existing keys win), SKU, regular price and
+weight. Sale prices are never imported; a sale is the owner's decision (BR-046).
 
 *Why:* the owner's edits are never silently lost. The trade, stated plainly: a price changed on
 Shopee after the first import does not reach the backoffice. If owners ask for it, add an explicit
@@ -756,15 +792,30 @@ The shopper (customer token or order token) can ask for a payment link for a `pe
 order. A live attempt's link is returned; if the last attempt failed or expired, a new attempt is
 created. A paid or cancelled order has no payment link.
 
-### BR-127 Google sign-in
-Each shop sets its own Google OAuth client ID. The website gets a Google ID token and sends it to
-the API, which verifies the signature against Google's keys and checks `iss` is Google, `aud` is
-the shop's client ID, and `email_verified` is true. The customer is found by Google subject, then
-by email (the Google identity is linked to the existing account), else created. Sessions are the
-same as any customer's (BR-093).
+### BR-127 Social sign-in (Google)
+A customer can sign in with an external provider as well as, or instead of, a password. **Google
+is the only provider enabled.** Apple and Microsoft follow the same standard (OpenID Connect) and
+are added by enabling the provider value, a client-ID setting and its token check; the tables do
+not change.
 
-*Why per shop:* Google's consent screen then shows the shop's name, and the client ID's allowed
+- **Each shop uses its own client ID** (`google_client_id`). The website gets an ID token from the
+  provider and sends it to the API. The API verifies its signature against the provider's public
+  keys and checks that `iss` is the provider, `aud` is the shop's client ID, the token has not
+  expired, and the email is verified.
+- **Logins live in `customer_identities`**, one row per (provider, subject). A customer may have a
+  password and several identities; all lead to the same account.
+- **Finding the customer:** by (provider, subject); else by email, linking the identity to the
+  existing account, but **only when the provider says the email is verified**; else a new customer
+  with no password.
+- A customer is never created with neither a password nor an identity. Sessions are the same as
+  any customer's (BR-093).
+
+*Why per shop:* the provider's consent screen shows the shop's name, and the client ID's allowed
 origins are the shop's own domain.
+
+*Why a separate table:* one column per provider (`google_sub`, `apple_sub`, …) would need a
+migration for every new provider. Apple can also hide a shopper's real email behind a relay
+address, so linking by email cannot be assumed for every provider.
 
 ### BR-128 Transactional email
 Sent through Resend from `"{shop name}" <no-reply@{domain}>` with Reply-To
@@ -790,7 +841,7 @@ client IDs are public by design and are returned.
 | 004 | `variants`, `order_lines`, `cart_items`, … | P1-020, P1-026, P1-100, P1-204 |
 | 005–007 | every payload | P1-028, P1-081 |
 | 008–009 | every create and `PATCH` | P1-024, P1-028 |
-| 010 | `PATCH` on versioned rows | P1-021, P1-024, P1-028, P1-029, P1-104 |
+| 010 | `PATCH` on versioned rows | P1-028, P1-029, P1-104 |
 | 011 | every error | P1-013 |
 | 012 | every catalog `DELETE` | P1-021, P1-028, P1-029 |
 | 013 | logging | P1-016 |
@@ -807,6 +858,7 @@ client IDs are public by design and are returned.
 | 037–042 | product editor, variant matrix | P1-025–029, P1-040, P1-041, P1-046, P1-049 |
 | 043–044 | bulk edit, CSV import | P1-072, P1-073, P1-074 |
 | 045 | archive a product with orders | P1-100 |
+| 046 | variant editor, matrix, cart, checkout | P1-026, P1-029, P1-040, P1-205 |
 | 050–053 | media library, image domain | P1-042–045, P1-048 |
 | 060, 063–065 | jobs, order export | P1-060, P1-107, P1-112 |
 | 070–073 | order detail | P1-101, P1-102 |

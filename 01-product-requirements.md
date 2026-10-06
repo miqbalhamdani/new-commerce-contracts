@@ -84,11 +84,12 @@ Tell pilot owners this before onboarding. They will ask in week one; have the an
 
 1. **The storefront API is the owner's website.** If it is slow or down, their shop is. Its
    latency and availability targets are the ones that matter (§8).
-2. **Customer data is never reachable with a key that ships in browser code.** A publishable key
-   reads public data and manages carts; anything personal needs a customer or order token
+2. **Customer data is never reachable with the API key alone.** The key ships in browser code,
+   so it reads only public data and manages carts; anything personal needs a customer or order token
    (BR-082).
 3. **Prices are computed on the server, always.** The website sends variant ids and quantities.
-   Totals come from `variants.price_amount` at the moment of checkout (BR-089).
+   Totals come from the variant's price at the moment of checkout, sale included (BR-046,
+   BR-089).
 4. **One cart, one order.** A double-tapped "Place order" on a slow phone must never create two
    orders (BR-088).
 5. **Variant matrices, not variant records.** Hundreds of styles × five sizes is thousands of rows;
@@ -131,7 +132,7 @@ appear (BR-025).
 | Brand manager | Admin | Brands | M2 |
 | Bulk import wizard | Admin | Upload CSV, map columns, watch progress, download errors | M2 |
 | Media library | Admin | Images per product: reorder, attach to variants | M2 |
-| API keys | Owner/Admin | Create (shown once), name, allowed origins, revoke; link to storefront docs | M3 |
+| API keys | Owner/Admin | Create (shown once) with a name and the website URL, revoke; link to storefront docs | M3 |
 | Channels | Owner/Admin | Connect, import, result, linked listings | M4 |
 | Team & roles | Owner/Admin | Invite, assign roles, disable | M5 |
 | Settings | Owner | Shop name, time zone, order prefix | M5 |
@@ -260,7 +261,7 @@ processing), **Shipped**, **Cancelled, refund owed** (BR-075).
 ### 6.2 M2 — Products and PIM
 
 **The variant matrix editor is the differentiating screen.** Options across the top, values down
-the side, a spreadsheet grid of SKU, price and weight. Paste from Excel. Fill-down. Bulk price
+the side, a spreadsheet grid of SKU, regular price, sale price and weight. Paste from Excel. Fill-down. Bulk price
 adjustment by percentage or amount across a selection, with a preview before it applies.
 
 **Stories.**
@@ -277,6 +278,8 @@ adjustment by percentage or amount across a selection, with a preview before it 
 - CSV import of 10,000 variants completes within 5 minutes and produces a downloadable per-row
   error report citing original line numbers (BR-044).
 - A product cannot be set `active` while any of its variants lacks a SKU (BR-038).
+- A scheduled sale starts and ends without anyone touching it, and checkout charges the price
+  active at that moment (BR-046).
 - Draft and archived products never appear in any storefront response (BR-080).
 - Archiving a product does not change its order-line history (BR-045).
 - A product may belong to several categories of different `kind` at once (BR-031).
@@ -284,11 +287,11 @@ adjustment by percentage or amount across a selection, with a preview before it 
 
 ### 6.3 M3 — Storefront API
 
-Admin screens: API keys (create, name, allowed origins, revoke; the key is shown once), storefront
+Admin screens: API keys (create with a name and the website URL, revoke; the key is shown once), storefront
 settings (Google sign-in, shipping, payment methods), and a link to the public storefront docs.
 
 **Stories.**
-- As an owner I create a publishable key for `https://tokoabc.com` and give it to my website
+- As an owner I create a key for `https://tokoabc.com` and give it to my website
   developer.
 - As a website developer I build product, cart, checkout and order-history pages from the public
   docs alone.
@@ -306,10 +309,9 @@ settings (Google sign-in, shipping, payment methods), and a link to the public s
 - A customer token issued for tenant A, sent with tenant B's API key, returns `401` (BR-086).
 - No route under `/v1/storefront/me` or `/v1/storefront/orders` answers with an API key alone
   (BR-082).
-- A publishable key from an origin not on its allowlist returns `403` with no
+- A browser request with the key from an origin not on its allowlist returns `403` with no
   `Access-Control-Allow-Origin` header (BR-083).
-- A secret key on a request carrying `Sec-Fetch-Site` returns `403 secret_key_in_browser`
-  (BR-084).
+- The same key works from a server request with no `Origin` (BR-083).
 - A revoked key stops working within 60 seconds (BR-085).
 - An order token for one order never opens another (BR-091).
 - Reusing an already-rotated refresh token revokes that customer session (BR-093).
@@ -363,7 +365,7 @@ active) · import result with downloadable error report · linked listings view.
 
 ### 7.1 A guest buys on the owner's website
 
-1. The website, holding a publishable key, lists products and opens `erigo-basic-tee`.
+1. The website, holding the shop's API key, lists products and opens `erigo-basic-tee`.
 2. "Add to cart" creates a cart (the website stores `cart_id` in its own cookie) and sets the
    variant's quantity.
 3. The shopper enters postal code 40115; the website shows Biteship options and the shopper picks
@@ -432,7 +434,8 @@ pre-optimise.
 - Staff and customer tokens are separate audiences; neither works on the other's routes (BR-086).
 - Storefront handlers read only the storefront views (BR-081).
 - Every admin mutation is audited with actor, IP and before/after (BR-018).
-- PII lives in `customers`, `orders.customer` and `orders.shipping_address`, and can be purged
+- PII lives in `customers`, `customer_identities`, `orders.customer` and
+  `orders.shipping_address`, and can be purged
   without touching the catalog (BR-097).
 - Logs redact by default; keys, tokens and credentials are never logged (BR-013).
 
@@ -440,8 +443,7 @@ pre-optimise.
 
 Trace storefront request → checkout → order insert as one trace, and each import job as one trace
 with a span per batch. Alert on: storefront 5xx rate > 1% · checkout p95 > 2 s · a spike in
-`origin_not_allowed` (usually an allowlist not updated after a domain change) · any
-`secret_key_in_browser` · a spike in failed customer logins per tenant (credential stuffing) · any
+`origin_not_allowed` (usually an allowlist not updated after a domain change) · a spike in failed customer logins per tenant (credential stuffing) · any
 channel in `reauth_required` for more than 24 hours · any failed import job · any Midtrans
 notification with a bad signature or an amount mismatch · Biteship error rate > 5% · more than 80 emails in a day while on Resend's
 free plan (its cap is 100) · bounce rate > 2% or complaint rate > 0.1% (providers suspend senders
@@ -455,7 +457,7 @@ above their limits).
 | Integration | Real PostgreSQL. No mocked database: RLS, row locks and `security_invoker` views cannot be mocked meaningfully |
 | Isolation | Generated suites over every route: two tenants, two customers per tenant, zero leakage both ways |
 | Concurrency | `go test -race`, plus 20 parallel checkouts of one cart: exactly one order, all 20 responses carry it |
-| Storefront auth | Table-driven over key kind × origin × fetch-metadata × token presence, against every storefront route |
+| Storefront auth | Table-driven over origin (allowed, foreign, absent) × token presence, against every storefront route |
 | Channel adapters | Recorded HTTP fixtures per marketplace, replayed; sandbox contract tests where offered |
 | Load | k6 against staging on the production VPS spec: storefront browsing at 10× expected peak with an import running |
 | Migration | Every migration applied to a restored production-shaped snapshot in CI |
@@ -485,7 +487,7 @@ Written in `new-commerce-api/docs/adr/` before Phase 0 ends; each will be questi
 
 Shared-schema tenancy with RLS, not schema-per-tenant · modular monolith, not microservices · no
 stock tracking: visible means orderable · admin and storefront as two route trees in one binary ·
-publishable and secret keys with an origin allowlist; personal data only behind customer or order
+one storefront key with an origin allowlist; personal data only behind customer or order
 tokens · storefront reads through `security_invoker` views · Midtrans on each owner's account,
 trusted only after signature and status checks · Biteship rates on one platform key, re-quoted at
 checkout · Resend for email · checkout idempotency from the cart,

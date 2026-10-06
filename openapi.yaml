@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 2.2.0
+  version: 2.3.0
   description: |
     Ecommerce Backoffice v2 — the admin API (`/v1`). The storefront API (`/v1/storefront`) is
     published as its own document, `/v1/storefront/openapi.json`, built by `P1-213`.
@@ -176,8 +176,9 @@ components:
       in: header
       name: X-Api-Key
       description: |
-        Storefront only. `pk_live_…` (publishable, origin-checked) or `sk_live_…` (secret, server
-        side only). The tenant comes from the key (BR-028, BR-083, BR-084).
+        Storefront only. One kind of key, `sf_live_…`. Browser requests must come from the key's
+        `allowed_origin`; server requests (no `Origin`) are accepted. The tenant comes from
+        the key (BR-028, BR-083).
 
     customerBearer:
       type: http
@@ -310,7 +311,7 @@ components:
 
     SessionTenant:
       type: object
-      required: [id, name, timezone, currency]
+      required: [id, name, timezone]
       properties:
         id:
           type: string
@@ -321,11 +322,6 @@ components:
           type: string
           description: IANA name. Display only; the wire is always WIB, `+07:00` (BR-007).
           examples: ["Asia/Jakarta"]
-        currency:
-          type: string
-          minLength: 3
-          maxLength: 3
-          examples: ["IDR"]
 
     Role:
       type: object
@@ -380,7 +376,6 @@ components:
         - customer_auth_required
         - permission_denied
         - origin_not_allowed
-        - secret_key_in_browser
         - not_found
         - version_conflict
         - duplicate_sku

@@ -17,7 +17,7 @@ the other, in the same commit.
 |---|---|
 | Base | `https://api.{domain}/v1`. Version in the path; a breaking change gets `/v2` |
 | Auth (admin) | `Authorization: Bearer <JWT>`, 15-minute access token, rotating refresh in an httpOnly cookie (BR-022). Admin routes accept nothing else |
-| Auth (storefront) | `X-Api-Key: pk_live_…` or `sk_live_…` on every request, plus `Authorization: Bearer <customer token>` or `X-Order-Token` where personal data is involved (§11.1) |
+| Auth (storefront) | `X-Api-Key: sf_live_…` on every request, plus `Authorization: Bearer <customer token>` or `X-Order-Token` where personal data is involved (§11.1) |
 | Auth (webhook) | `POST /v1/webhooks/midtrans/{webhook_id}` only: authenticated by Midtrans' `signature_key` and confirmed with the Get Status API (BR-124, §11.10) |
 | Tenant | From the staff token, the API key or a verified webhook, **never** from a header, query or body (BR-003) |
 | Content type | `application/json; charset=utf-8` |
@@ -28,7 +28,7 @@ the other, in the same commit.
 | Server-managed fields | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `*_at` audit stamps, brand `slug`: sending one is `422`, on create and update alike (BR-008) |
 | Unknown fields | `422 unknown_field`, never ignored. In particular, any price field on a cart or checkout route (BR-089) |
 | Omitted vs `null` | Create: omitted takes the default, `null` is `422`. `PATCH`: omitted is unchanged, `null` clears a nullable field (BR-009) |
-| Concurrency | `If-Match: <version>` on every `PATCH` to products, variants, brands, categories and orders, and on `PUT` variant-matrix; stale → `409 version_conflict` (BR-010) |
+| Concurrency | `If-Match: <version>` on every `PATCH` to products, variants and orders, and on `PUT` variant-matrix; stale → `409 version_conflict` (BR-010) |
 | Idempotency | No `Idempotency-Key` header. Checkout is idempotent per cart (BR-088); transitions are idempotent because moving to the current status is a no-op (BR-071) |
 | Responses | Every field is always present; an empty optional field is `null`. References expand to `{id, name}` |
 | Collections | `{ "data": [...], "next_cursor": "…" }`; `next_cursor` is `null` on the last page. Unpaginated collections omit it. `GET /v1/roles` is the one bare array |
@@ -69,8 +69,7 @@ whatever that failure needs.
 | `invalid_api_key` | 401 | `X-Api-Key` missing, unknown or revoked | 085 |
 | `customer_auth_required` | 401 | Customer or order token missing, invalid, expired, or for another tenant | 082, 086 |
 | `permission_denied` | 403 | `detail` names the permission required | 024 |
-| `origin_not_allowed` | 403 | Publishable key from an origin not on its allowlist | 083 |
-| `secret_key_in_browser` | 403 | Secret key on a request carrying `Sec-Fetch-Site` | 084 |
+| `origin_not_allowed` | 403 | Browser request from an origin not on the key's allowlist | 083 |
 | `not_found` | 404 | Not in this tenant (or not this customer's), including other tenants' rows | 011 |
 | `version_conflict` | 409 | Stale `If-Match` | 010 |
 | `duplicate_sku` | 409 | SKU already used in this tenant; `detail` names the product | 039 |
@@ -115,7 +114,7 @@ POST /v1/auth/login
 { "access_token": "eyJ…", "expires_in": 900,
   "user":   { "id": "0192…", "name": "Budi", "role": "ops",
               "permissions": ["orders:read", "orders:write", "…"] },
-  "tenant": { "id": "0192…", "name": "Erigo", "timezone": "Asia/Jakarta", "currency": "IDR" } }
+  "tenant": { "id": "0192…", "name": "Erigo", "timezone": "Asia/Jakarta" } }
 ```
 
 This body is a **Session**; `refresh` and `accept-invite` return it too. The tenant comes from the
@@ -151,7 +150,7 @@ GET /v1/me
 200 OK
 { "user":   { "id": "0192…", "email": "ops@erigo.co.id", "name": "Budi", "role": "ops",
               "permissions": ["orders:read", "…"] },
-  "tenant": { "id": "0192…", "name": "Erigo", "timezone": "Asia/Jakarta", "currency": "IDR" } }
+  "tenant": { "id": "0192…", "name": "Erigo", "timezone": "Asia/Jakarta" } }
 
 PATCH /v1/me
 { "name": "Budi Santoso" }
@@ -232,7 +231,7 @@ cannot do (BR-025).
 GET /v1/settings
 200 OK
 { "id": "0192…", "name": "Erigo", "slug": "erigo", "order_prefix": "ERG",
-  "timezone": "Asia/Jakarta", "currency": "IDR", "status": "active" }
+  "timezone": "Asia/Jakarta", "status": "active" }
 
 PATCH /v1/settings
 { "name": "Erigo Apparel", "timezone": "Asia/Makassar" }
@@ -240,7 +239,7 @@ PATCH /v1/settings
 ```
 
 `name`, `timezone` and `order_prefix` are editable; a new prefix applies to new orders only.
-`currency` is always `IDR` (BR-029).
+There is no currency setting: every amount is IDR (BR-029).
 
 ### Storefront settings
 
@@ -323,13 +322,12 @@ DELETE /v1/users/{id}
 
 ```json
 POST /v1/api-keys
-{ "name": "Main website", "kind": "publishable",
-  "allowed_origins": ["https://tokoabc.com", "https://www.tokoabc.com"] }
+{ "name": "Main website", "allowed_origin": "https://tokoabc.com" }
 
 201 Created
-{ "id": "0192…", "name": "Main website", "kind": "publishable", "prefix": "pk_live_3f9a",
-  "key": "pk_live_3f9a91c2e8…",           ← shown exactly once; never retrievable again
-  "allowed_origins": ["https://tokoabc.com", "https://www.tokoabc.com"],
+{ "id": "0192…", "name": "Main website",
+  "key": "sf_live_3f9a91c2e8…",           ← shown exactly once; never retrievable again
+  "allowed_origin": "https://tokoabc.com",
   "created_by": { "id": "0192…", "name": "Budi" },
   "last_used_at": null, "revoked_at": null, "created_at": "2026-10-06T16:15:00+07:00" }
 
@@ -338,16 +336,17 @@ GET /v1/api-keys
 { "data": [ …same shape without "key"… ] }    ← unpaginated; revoked keys are not listed
 
 PATCH /v1/api-keys/{id}
-{ "allowed_origins": ["https://tokoabc.com", "https://staging.tokoabc.com"] }
+{ "allowed_origin": "https://shop.tokoabc.com" }
 200 OK   ← ApiKey without "key"
 
 DELETE /v1/api-keys/{id}
 204 No Content   ← revokes; stops working within 60 s (BR-085)
 ```
 
-- A publishable key needs at least one origin; each origin is exact `scheme://host[:port]`, no
-  path, no wildcard. A secret key's `allowed_origins` must be empty (BR-028, BR-083).
-- `kind` cannot be changed by `PATCH`; revoke and issue a new key instead.
+- `allowed_origin` is required: one exact `scheme://host[:port]`, no path, no wildcard, no
+  trailing slash; anything else is `422` (BR-028, BR-083).
+- A website on two origins (`tokoabc.com` and `www.tokoabc.com`), or a staging site, needs one
+  key per origin.
 
 ### Audit log
 
@@ -488,7 +487,7 @@ POST /v1/orders
 201 Created   ← Order, status pending
 ```
 
-Line prices come from the catalog exactly as checkout does (BR-078); a `unit_price` in the request
+Line prices come from `variant_price()` exactly as checkout does (BR-046, BR-078); a `unit_price` in the request
 is `422 unknown_field`. Archived variants are `422` naming the line. `source` must be `manual`.
 `shipping` is either a typed `amount` or a courier choice, which is quoted like checkout (BR-121).
 Manual orders are always `bank_transfer`.
@@ -540,12 +539,12 @@ Filters match §5.1. One CSV row per order line (BR-065). Poll `GET /v1/jobs/{id
 | `GET` | `/v1/brands?q=&archived=false&limit=&cursor=` | `brands:read` | — |
 | `POST` | `/v1/brands` | `brands:write` | 030 |
 | `GET` | `/v1/brands/{id}` | `brands:read` | — |
-| `PATCH` | `/v1/brands/{id}` | `brands:write` | 010, 030 |
+| `PATCH` | `/v1/brands/{id}` | `brands:write` | 030 |
 | `DELETE` | `/v1/brands/{id}` | `brands:write` | 012 |
 | `GET` | `/v1/categories?kind=&parent_id=&depth=` | `categories:read` | 031 |
 | `GET` | `/v1/categories/{id}` | `categories:read` | 033 |
 | `POST` | `/v1/categories` | `categories:write` | 031, 032, 035 |
-| `PATCH` | `/v1/categories/{id}` | `categories:write` | 010, 032, 033, 034, 035 |
+| `PATCH` | `/v1/categories/{id}` | `categories:write` | 032, 033, 034, 035 |
 | `DELETE` | `/v1/categories/{id}` | `categories:write` | 012, 036 |
 
 ### 6.1 Brands
@@ -555,15 +554,16 @@ POST /v1/brands
 { "name": "Erigo" }
 
 201 Created
-{ "id": "0192…", "version": 1, "name": "Erigo", "slug": "erigo", "archived_at": null,
+{ "id": "0192…", "name": "Erigo", "slug": "erigo", "archived_at": null,
   "created_at": "2026-10-06T16:15:00+07:00", "updated_at": "2026-10-06T16:15:00+07:00" }
 
-PATCH /v1/brands/{id}          If-Match: 1
+PATCH /v1/brands/{id}
 { "name": "Erigo Apparel" }
-200 OK   ← Brand, version 2, slug re-derived
+200 OK   ← Brand, slug re-derived
 ```
 
 A name whose slug matches another brand's, archived ones included, is `422` on `name` (BR-030).
+No `If-Match`: brands have no `version`, so the last save wins (BR-010).
 The list is sorted by `name`; `q` matches the name.
 
 ### 6.2 Categories
@@ -573,7 +573,7 @@ POST /v1/categories
 { "name": "Jackets", "parent_id": "0192-outerwear", "kind": "category" }
 
 201 Created
-{ "id": "0192…", "version": 1, "kind": "category", "name": "Jackets",
+{ "id": "0192…", "kind": "category", "name": "Jackets",
   "parent_id": "0192-outerwear", "path": "apparel.outerwear.jackets",
   "archived_at": null, "created_at": "…", "updated_at": "…" }
 
@@ -581,7 +581,7 @@ GET /v1/categories/{id}
 200 OK   ← Category plus the counts the move dialog needs:
 { …, "descendant_count": 4, "product_count": 128 }      ← product_count spans the subtree
 
-PATCH /v1/categories/{id}      If-Match: 1
+PATCH /v1/categories/{id}
 { "parent_id": "0192-technical-outerwear" }      or   { "name": "Jackets & Coats" }
 200 OK   ← Category with its new path
 
@@ -596,6 +596,8 @@ DELETE /v1/categories/{id}
   assignments alone (BR-033).
 - Moving a category beneath its own descendant is `422` on `parent_id` (BR-034).
 - `parent_id: null` on `PATCH` makes the category a root.
+- No `If-Match`: categories have no `version`, so the last save wins (BR-010). Two moves at once
+  still leave a valid tree, because the trigger rewrites paths inside each statement (BR-032).
 - **List.** Unpaginated, flat, sorted by `kind` then `path`; the client builds the tree from
   `parent_id`. `kind` limits to one tree, `parent_id` starts below that node, `depth=1` returns one
   level for lazy-loading large trees.
@@ -701,18 +703,23 @@ GET /v1/products?status=active&category_id=0192-apparel&q=tee&sort=-updated_at
 ```json
 POST /v1/products/{id}/variants
 { "option_values": ["Black", "S"], "sku": "TS-BLK-S",
-  "price": { "amount": 19900000 }, "weight_grams": 200 }
+  "regular_price": { "amount": 19900000 }, "weight_grams": 200 }
 
 201 Created
 { "id": "0192…", "product_id": "0192b7f0-…", "version": 1,
   "option_values": ["Black", "S"], "sku": "TS-BLK-S", "barcode": null,
-  "price": { "amount": 19900000, "currency": "IDR" },   ← currency from the tenant
-  "compare_at_price": null, "weight_grams": 200,
+  "regular_price": { "amount": 19900000, "currency": "IDR" },   ← currency defaults to IDR
+  "sale_price": null, "sale_starts_at": null, "sale_ends_at": null,
+  "price": { "amount": 19900000, "currency": "IDR" },   ← read-only: what a shopper pays now
+  "on_sale": false,
+  "weight_grams": 200,
   "archived_at": null, "created_at": "…", "updated_at": "…" }
 
 PATCH /v1/variants/{id}        If-Match: 1
-{ "barcode": "8991234567890", "compare_at_price": null }
-200 OK   ← Variant, version 2
+{ "sale_price": { "amount": 14900000 },
+  "sale_starts_at": "2026-10-10T00:00:00+07:00",
+  "sale_ends_at":   "2026-10-13T00:00:00+07:00" }
+200 OK   ← Variant, version 2; price becomes 14900000 on 10 Oct and goes back on 13 Oct
 
 GET /v1/products/{id}/variants
 200 OK
@@ -722,6 +729,10 @@ GET /v1/products/{id}/variants
 - `option_values` has one entry per `option_names` entry and is unique among the product's live
   variants (BR-040). It changes only through the matrix.
 - A clashing SKU is `409 duplicate_sku` (BR-039).
+- **Prices** (BR-046). `regular_price` and `sale_price` are writable; `price` and `on_sale` are
+  read-only and computed by `variant_price()`. A `sale_price` not lower than `regular_price`, or a
+  `sale_ends_at` not after `sale_starts_at`, is `422`. `"sale_price": null` ends the sale; the
+  schedule fields are optional.
 
 ### 7.3 Variant matrix
 
@@ -734,13 +745,14 @@ PUT /v1/products/{id}/variant-matrix      If-Match: 3      ← the PRODUCT's ver
 { "option_names": ["Colour", "Size"],
   "rows": [
     { "option_values": ["Black","S"], "sku": "TS-BLK-S",
-      "price": { "amount": 19900000 }, "weight_grams": 200 },
+      "regular_price": { "amount": 19900000 }, "weight_grams": 200 },
     { "option_values": ["Black","M"], "sku": "TS-BLK-M",
-      "price": { "amount": 19900000 }, "weight_grams": 210 },
+      "regular_price": { "amount": 19900000 }, "weight_grams": 210 },
     { "option_values": ["Black","XXL"], "sku": "TS-BLK-XXL",
-      "price": { "amount": 21900000 }, "weight_grams": 240 },
+      "regular_price": { "amount": 21900000 }, "weight_grams": 240 },
     { "option_values": ["White","S"], "sku": "TS-WHT-S",
-      "price": { "amount": 19900000 }, "weight_grams": 200 } ],
+      "regular_price": { "amount": 19900000 },
+      "sale_price": { "amount": 14900000 }, "weight_grams": 200 } ],
   "archive_missing": true }
 
 200 OK
@@ -788,21 +800,23 @@ structured data: a multi-select action on the product list, or paste-into-grid. 
 { "on_conflict": "update",
   "items": [
     { "sku": "TS-BLK-S", "status": "active",
-      "price": { "amount": 19900000, "currency": "IDR" } },
+      "regular_price": { "amount": 19900000, "currency": "IDR" } },
     { "sku": "TS-BLK-M", "status": "active",
-      "price": { "amount": 19900000, "currency": "IDR" } } ] }
+      "sale_price": { "amount": 14900000, "currency": "IDR" },
+      "sale_ends_at": "2026-10-13T00:00:00+07:00" } ] }
 
 200 OK
 { "created": 0, "updated": 1, "failed": 1,
   "results": [
     { "index": 0, "sku": "TS-BLK-S", "status": "updated", "variant_id": "0192…" },
     { "index": 1, "sku": "TS-BLK-M", "status": "error",
-      "code": "validation_failed", "detail": "price.amount must be positive" } ] }
+      "code": "validation_failed", "detail": "sale_price must be lower than regular_price" } ] }
 ```
 
 - Keyed on `sku` (BR-043). `on_conflict` is `update` or `error`. A row without `sku` creates a
   product with one variant and must carry `title`.
-- Item fields: `sku`, `title`, `status`, `price`, `compare_at_price`, `weight_grams`, `barcode`.
+- Item fields: `sku`, `title`, `status`, `regular_price`, `sale_price`, `sale_starts_at`,
+  `sale_ends_at`, `weight_grams`, `barcode`.
   `status` applies to the variant's product and runs the publish check.
 - Results are indexed by request position. Partial success is the contract: one bad row never
   rolls back the other 499.
@@ -841,7 +855,8 @@ sequenceDiagram
 ```json
 POST /v1/products/import
 { "r2_key": "0192-tenant/jobs/0193…/upload.csv",
-  "column_mapping": { "Nama Produk": "title", "SKU": "sku", "Harga": "price.amount",
+  "column_mapping": { "Nama Produk": "title", "SKU": "sku", "Harga": "regular_price.amount",
+                      "Harga Diskon": "sale_price.amount",
                       "Berat": "weight_grams", "Warna": "option:Colour", "Ukuran": "option:Size" },
   "on_conflict": "update" }
 
@@ -1020,19 +1035,21 @@ Storefront routes never accept a staff token (BR-086).
 | Customer account and order history | `X-Api-Key` + `Authorization: Bearer <customer token>` | Personal data. Never reachable with a key alone |
 | Guest order lookup | `X-Api-Key` + `X-Order-Token` from checkout | The token is the guest's proof the order is theirs |
 
-**Two kinds of key** (BR-028). A publishable key (`pk_live_…`) goes in browser code and must come
-from an allowed origin. A secret key (`sk_live_…`) is for a website with its own server (Next.js,
-Nuxt with SSR); it skips the origin check and is limited per key, not per IP.
+**One kind of key** (BR-028). The owner creates a key with their website's domain and gives it
+to their developer. The same key works in browser code (where the domain is checked) and on the
+website's own server, such as Next.js or Nuxt rendering on the server (where there is no browser
+to check).
 
 ### 11.2 The key middleware
 
-Every storefront request runs this before any handler (BR-083, BR-084, BR-085):
+Every storefront request runs this before any handler (BR-083, BR-085):
 
 1. Resolve `X-Api-Key` by SHA-256 through `resolve_api_key` (cached ≤ 60 s). Missing, unknown or
    revoked → `401 invalid_api_key`.
-2. **Publishable:** `Origin` must exactly match an allowed origin, else `403 origin_not_allowed`
-   with no `Access-Control-Allow-Origin`. On a match, echo the origin and add `Vary: Origin`.
-3. **Secret:** a `Sec-Fetch-Site` header → `403 secret_key_in_browser`.
+2. **Request has an `Origin`** (from a browser): it must exactly match the key's
+   `allowed_origin`, else `403 origin_not_allowed` with no `Access-Control-Allow-Origin`. On a match, echo
+   the origin and add `Vary: Origin`. Browser rate limits apply.
+3. **No `Origin`** (from a server): accepted; server rate limits apply (BR-014).
 4. Set the tenant from the key; every query then runs through `InTenantTx` like any admin query.
 
 Preflight `OPTIONS` carries no key and is answered for any origin with the allowed methods and
@@ -1085,6 +1102,7 @@ GET /v1/storefront/products?category=apparel.tees&sort=-updated_at&limit=24
 - `category` takes a category `path` and includes descendants; `brand` takes a brand slug; `q` is
   a trigram match on title.
 - `sort`: `-updated_at` (default), `price_min`, `-price_min`, `title`.
+- `price_min`/`price_max` are the prices shoppers pay right now, sales included (BR-046).
 - Only visible products appear (BR-080). p95 under 300 ms.
 
 ```json
@@ -1100,8 +1118,10 @@ GET /v1/storefront/products/erigo-basic-tee
                 "sizes": { "1600": "…", "800": "…", "200": "…" } } ],
   "variants": [
     { "id": "0192…", "sku": "TS-BLK-S", "option_values": ["Black", "S"],
-      "price": { "amount": 19900000, "currency": "IDR" },
-      "compare_at_price": null, "weight_grams": 200 } ],
+      "price": { "amount": 14900000, "currency": "IDR" },          ← what the shopper pays now
+      "regular_price": { "amount": 19900000, "currency": "IDR" },  ← show crossed out when on_sale
+      "on_sale": true,
+      "weight_grams": 200 } ],
   "updated_at": "2026-10-06T16:15:00+07:00" }
 ```
 
@@ -1119,7 +1139,7 @@ GET /v1/storefront/brands
 
 GET /v1/storefront/config
 200 OK
-{ "shop_name": "Toko ABC", "currency": "IDR",
+{ "shop_name": "Toko ABC",
   "google_client_id": "1234-abc.apps.googleusercontent.com",   ← null when Google sign-in is off
   "payment_methods": ["bank_transfer", "midtrans"],
   "bank_transfer_instructions": "Transfer to BCA 123456789 a.n. Toko ABC",
@@ -1148,7 +1168,7 @@ GET /v1/storefront/carts/{cart_id}
   "items": [
     { "variant_id": "0192…", "sku": "TS-BLK-M", "title": "Erigo Basic Tee — Black / M",
       "product_slug": "erigo-basic-tee", "option_values": ["Black", "M"], "qty": 2,
-      "unit_price": { "amount": 19900000, "currency": "IDR" },   ← today's price (BR-087)
+      "unit_price": { "amount": 19900000, "currency": "IDR" },   ← price right now (BR-046, BR-087)
       "line_total": { "amount": 39800000, "currency": "IDR" },
       "image_url": "https://img.{domain}/…/200.webp",
       "available": true } ],
@@ -1293,9 +1313,9 @@ POST /v1/storefront/auth/password-reset/confirm
   sign the customer in again (BR-093).
 - Google: the token's signature, `iss`, `aud` (the shop's `google_client_id`) and
   `email_verified` are checked; any failure is `401 unauthenticated`. A shop without a client ID
-  answers `422`. A Google sign-in with the email of an existing password account links the two
-  (BR-127).
-- `reset_url` must start with one of the key's allowed origins (secret keys: any `https` URL); the
+  answers `422`. A Google sign-in with the verified email of an existing account links the
+  Google login to it, recorded in `customer_identities` (BR-127).
+- `reset_url` must start with the key's `allowed_origin`; the
   emailed link is `reset_url?token=…`, valid 30 minutes.
 
 ### 11.9 Me and order history

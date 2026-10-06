@@ -1,6 +1,6 @@
 # Ecommerce Backoffice v2 · Data Model
 
-**23 tables, 2 views.** Constraints are tagged with the rule they enforce (`BR-xxx`, see
+**24 tables, 2 views.** Constraints are tagged with the rule they enforce (`BR-xxx`, see
 `02-business-rules.md`). The API contract is `04-api-spec.md`; which backlog item builds which
 table is `05-backlog.md`. Migrations in `new-commerce-api/db/migrations/` must match this file;
 if they disagree, the migration is the bug.
@@ -27,6 +27,7 @@ erDiagram
   VARIANTS ||--o{ CART_ITEMS : "added as"
   VARIANTS ||--o{ ORDER_LINES : "sold as"
   CUSTOMERS ||--o{ CUSTOMER_SESSIONS : "signs in with"
+  CUSTOMERS ||--o{ CUSTOMER_IDENTITIES : "logs in via"
   CUSTOMERS ||--o{ CARTS : uses
   CUSTOMERS ||--o{ ORDERS : places
   CARTS ||--o{ CART_ITEMS : contains
@@ -45,7 +46,7 @@ in several trees of different `kind` at once (BR-031). Not drawn: `jobs`, `order
 | Platform | `tenants`, `users`, `refresh_tokens`, `api_keys`, `audit_log`, `jobs` | M5 |
 | Catalog | `brands`, `categories`, `products`, `variants`, `product_categories`, `product_media` | M2 |
 | Marketplace import | `channels`, `channel_listings` | M4 |
-| Storefront | `storefront_settings`, `customers`, `customer_sessions`, `carts`, `cart_items` | M3 |
+| Storefront | `storefront_settings`, `customers`, `customer_identities`, `customer_sessions`, `carts`, `cart_items` | M3 |
 | Orders | `orders`, `order_lines`, `order_sequences`, `payments` | M1 |
 | Views | `storefront_products`, `storefront_variants` | M3 |
 
@@ -63,8 +64,8 @@ These hold for every table.
 - **Timestamps** are `timestamptz`, never `timestamp`; every session runs with `TimeZone = 'Asia/Jakarta'` (WIB) (BR-007).
 - **Archive, don't delete** via `archived_at timestamptz` on brands, categories, products and
   variants (BR-012). Orders are never deleted, only cancelled (BR-079).
-- **Optimistic concurrency** via `version integer NOT NULL DEFAULT 1` on brands, categories,
-  products, variants and orders, checked in `UPDATE … WHERE version = $n` and exposed as
+- **Optimistic concurrency** via `version integer NOT NULL DEFAULT 1` on products, variants and
+  orders, checked in `UPDATE … WHERE version = $n` and exposed as
   `If-Match` (BR-010).
 - **Every tenant table** gets `ENABLE` + `FORCE ROW LEVEL SECURITY` and the `tenant_isolation`
   policy (BR-001). It is written once below; assume it on every table with `tenant_id`.
@@ -131,7 +132,6 @@ CREATE TABLE tenants (
     -- BR-077. Prefix of the human order number: 'TKA' -> TKA-000123.
     order_prefix text NOT NULL CHECK (order_prefix ~ '^[A-Z0-9]{2,6}$'),
     timezone     text NOT NULL DEFAULT 'Asia/Jakarta',       -- BR-029
-    currency     char(3) NOT NULL DEFAULT 'IDR',             -- BR-029
     status       text NOT NULL DEFAULT 'active'
                  CHECK (status IN ('active','suspended','closed')),
     created_at   timestamptz NOT NULL DEFAULT now()
@@ -172,27 +172,25 @@ CREATE TABLE api_keys (
     id              uuid PRIMARY KEY,
     tenant_id       uuid NOT NULL REFERENCES tenants(id),
     name            text NOT NULL,          -- 'Main website', 'Staging site'
-    -- BR-028. publishable: in the website's browser code, origin-checked (BR-083).
-    -- secret: the website's own server only (BR-084). Both reach the same
-    -- storefront routes; personal data needs a customer or order token on top (BR-082).
-    kind            text NOT NULL CHECK (kind IN ('publishable','secret')),
-    prefix          text NOT NULL,          -- 'pk_live_3f9a': how the admin UI identifies a key
+    -- BR-028. One kind of key: works from the website in a browser (origin-checked,
+    -- BR-083) and from the website's own server. Personal data needs a customer
+    -- or order token on top (BR-082).
     key_hash        text NOT NULL UNIQUE,   -- SHA-256; the plaintext is shown once
-    -- Exact scheme + host + port, e.g. 'https://tokoabc.com'.
-    allowed_origins text[] NOT NULL DEFAULT '{}',
+    -- The website's URL: exact scheme + host + port, no path, e.g. 'https://tokoabc.com'.
+    -- One per key; a second origin (www, staging) gets its own key (BR-028).
+    allowed_origin  text NOT NULL CHECK (allowed_origin ~ '^https?://[^/?#]+$'),
     last_used_at    timestamptz,
     revoked_at      timestamptz,
     created_by      uuid REFERENCES users(id),
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    CHECK (kind = 'secret' OR cardinality(allowed_origins) > 0)
+    created_at      timestamptz NOT NULL DEFAULT now()
 );
 
 -- BR-003. The one pre-tenant query on the storefront path. Returns only what the
 -- middleware needs; never a general-purpose RLS bypass.
 CREATE FUNCTION resolve_api_key(p_hash text)
-RETURNS TABLE (id uuid, tenant_id uuid, kind text, allowed_origins text[], revoked_at timestamptz)
+RETURNS TABLE (id uuid, tenant_id uuid, allowed_origin text, revoked_at timestamptz)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT id, tenant_id, kind, allowed_origins, revoked_at FROM api_keys WHERE key_hash = p_hash;
+  SELECT id, tenant_id, allowed_origin, revoked_at FROM api_keys WHERE key_hash = p_hash;
 $$;
 
 CREATE TABLE audit_log (                -- BR-018, BR-073
@@ -239,7 +237,6 @@ CREATE TABLE brands (
     tenant_id   uuid NOT NULL REFERENCES tenants(id),
     name        text NOT NULL,
     slug        text NOT NULL,          -- derived from name, never from a client (BR-008, BR-030)
-    version     integer NOT NULL DEFAULT 1,
     archived_at timestamptz,
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -258,7 +255,6 @@ CREATE TABLE categories (
                 CHECK (kind IN ('category','series','collection','activity','custom')),
     name        text NOT NULL,
     path        ltree NOT NULL,         -- derived by trigger, never from a client (BR-032, §3.7)
-    version     integer NOT NULL DEFAULT 1,
     archived_at timestamptz,
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -309,16 +305,39 @@ CREATE TABLE variants (
     barcode       text,
     -- Positional against products.option_names: ['Black','S'] (BR-040)
     option_values text[] NOT NULL DEFAULT '{}',
-    price_amount  bigint NOT NULL DEFAULT 0 CHECK (price_amount >= 0),
-    compare_at_amount bigint CHECK (compare_at_amount IS NULL OR compare_at_amount >= 0),
+    -- BR-046. WooCommerce-style pricing. Never read these two directly to charge
+    -- anyone: the price a shopper pays is variant_price(v), below.
+    regular_price_amount bigint NOT NULL DEFAULT 0 CHECK (regular_price_amount >= 0),
+    sale_price_amount    bigint,          -- NULL = no sale
+    sale_starts_at       timestamptz,     -- NULL = the sale is on as soon as it is set
+    sale_ends_at         timestamptz,     -- NULL = the sale runs until removed
     currency      char(3) NOT NULL DEFAULT 'IDR',
     weight_grams  integer NOT NULL DEFAULT 0 CHECK (weight_grams >= 0),
     -- BR-017: no quantity column, ever.
     archived_at   timestamptz,
     version       integer NOT NULL DEFAULT 1,
     created_at    timestamptz NOT NULL DEFAULT now(),
-    updated_at    timestamptz NOT NULL DEFAULT now()
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    -- BR-046: a sale price is always a discount, and a schedule runs forward.
+    CHECK (sale_price_amount IS NULL
+           OR (sale_price_amount >= 0 AND sale_price_amount < regular_price_amount)),
+    CHECK (sale_starts_at IS NULL OR sale_ends_at IS NULL OR sale_ends_at > sale_starts_at)
 );
+
+-- BR-046. The ONE place that decides what a variant costs right now. Checkout,
+-- carts, manual orders, Biteship item values and Midtrans amounts all use it,
+-- directly or through storefront_variants. now() makes a scheduled sale start
+-- and end on its own, with no job.
+CREATE FUNCTION variant_price(v variants) RETURNS bigint
+LANGUAGE sql STABLE AS $$
+  SELECT CASE
+           WHEN v.sale_price_amount IS NOT NULL
+            AND (v.sale_starts_at IS NULL OR now() >= v.sale_starts_at)
+            AND (v.sale_ends_at   IS NULL OR now() <  v.sale_ends_at)
+           THEN v.sale_price_amount
+           ELSE v.regular_price_amount
+         END;
+$$;
 -- BR-039. A partial unique index, not a UNIQUE constraint: SKU is optional, so
 -- many variants may have sku IS NULL while the non-null ones stay unique.
 CREATE UNIQUE INDEX variants_tenant_sku_uq
@@ -455,19 +474,36 @@ CREATE TABLE customers (
     id                uuid PRIMARY KEY,
     tenant_id         uuid NOT NULL REFERENCES tenants(id),
     email             text NOT NULL,
-    password_hash     text,                 -- argon2id (BR-022); NULL for a Google-only customer
-    google_sub        text,                 -- Google subject id, once linked (BR-127)
+    -- argon2id (BR-022). NULL for a customer who only ever signed in with a
+    -- provider (customer_identities). The API refuses to create a customer with
+    -- neither a password nor an identity (BR-127).
+    password_hash     text,
     name              text NOT NULL,
     phone             text,
     email_verified_at timestamptz,
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, email),
-    UNIQUE (tenant_id, google_sub),
-    CHECK (email = lower(email)),
-    CHECK (password_hash IS NOT NULL OR google_sub IS NOT NULL)
+    CHECK (email = lower(email))
 );
 ALTER TABLE customers ADD CONSTRAINT customers_id_tenant_uq UNIQUE (id, tenant_id);
+
+-- BR-127. One row per external login linked to a customer: "Google account
+-- 110248495921238986420 is customer X". One customer can have several (password
+-- plus Google, later Apple). Adding a provider is one more value in the CHECK,
+-- never a new column.
+CREATE TABLE customer_identities (
+    tenant_id   uuid NOT NULL REFERENCES tenants(id),
+    customer_id uuid NOT NULL,
+    provider    text NOT NULL CHECK (provider IN ('google')),   -- later: 'apple', 'microsoft'
+    subject     text NOT NULL,          -- the provider's permanent person id (the token's 'sub')
+    email       text,                   -- email the provider reported; for support only
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, provider, subject),   -- one external account, one customer per shop
+    UNIQUE (customer_id, provider),               -- one Google account per customer
+    CONSTRAINT customer_identities_same_tenant_as_customer
+        FOREIGN KEY (customer_id, tenant_id) REFERENCES customers (id, tenant_id) ON DELETE CASCADE
+);
 
 -- One row per signed-in device. The refresh token rotates on every use (BR-093).
 CREATE TABLE customer_sessions (
@@ -735,7 +771,10 @@ WHERE p.status = 'active' AND p.archived_at IS NULL;
 
 CREATE VIEW storefront_variants WITH (security_invoker = true) AS
 SELECT v.id, v.tenant_id, v.product_id, v.sku, v.option_values,
-       v.price_amount, v.compare_at_amount, v.currency, v.weight_grams,
+       variant_price(v)                       AS price_amount,   -- what the shopper pays (BR-046)
+       v.regular_price_amount,
+       variant_price(v) < v.regular_price_amount AS on_sale,
+       v.currency, v.weight_grams,
        sp.title AS product_title
 FROM variants v
 JOIN storefront_products sp ON sp.id = v.product_id
@@ -789,10 +828,12 @@ variant of a product contend on one row, and erase the difference between on-han
 | Removed | `stock_locations`, `stock_ledger_entries`, `stock_balances`, `channel_events`, `reservations`, `fulfillments`, `fulfillment_lines`, `shipments`, `returns`, `return_lines`, `idempotency_keys`, `outbound_webhooks` (all from the v1.0 spec, never built) |
 | Added | `customers`, `customer_sessions`, `carts`, `cart_items`, `orders`, `order_lines`, `order_sequences`, `channels`, `channel_listings`, `audit_log`, `jobs`, and in v2.1 `storefront_settings`, `payments` |
 | `users.role` | `warehouse` removed from the CHECK (BR-023). Migration: P1-017 |
-| `api_keys` | `permissions` dropped; `kind`, `allowed_origins` added; `key_prefix` renamed `prefix` (BR-028). Migration: P1-019 |
+| `api_keys` | `permissions` and `key_prefix` dropped; `allowed_origin` added (one URL per key). One kind of key, no `kind` column (BR-028). Migration: P1-019 |
 | `brands` | `channel_brand_ids` dropped (marketplace CSV export retired, BR-061) |
 | `products` | `slug` added (BR-042) |
-| `tenants` | `order_prefix` added (BR-077) |
+| `variants` (v2.3) | `price_amount` → `regular_price_amount`; `compare_at_amount` → `sale_price_amount` with `sale_starts_at`, `sale_ends_at`; `variant_price()` added (BR-046) |
+| `tenants` | `order_prefix` added (BR-077); `currency` dropped, IDR is the only currency (BR-029). Migration: P1-082 |
 | `product_media` | `source_url` added (BR-106) |
-| `customers` (v2.1) | `password_hash` nullable, `google_sub` added (BR-127) |
+| `customers` (v2.1) | `password_hash` nullable (BR-127) |
+| `customer_identities` (v2.3) | Added; replaces v2.1's `customers.google_sub` so more login providers need no new column (BR-127) |
 | `orders` (v2.1) | `payment_method`, `shipping_courier`, `shipping_service` added; `courier` takes any Biteship code; `currency` fixed to IDR (BR-029, BR-121, BR-122) |

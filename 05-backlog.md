@@ -58,8 +58,9 @@ exists in 18 can never reach a 16 server (`P1-002`). Revisit only once the machi
 | P1-016 | Log field allow-list | BE | 013 | Fields not on the allow-list are redacted on every log line; `Authorization`, `X-Api-Key`, `X-Order-Token` and cookies never appear (BR-013) | todo | |
 | P1-017 | Four roles: drop `warehouse`, v2 permission matrix | BE/FE | 012 | Migration removes `warehouse` from the `users.role` CHECK and fails loudly if any user holds it; seeded permissions equal §3; `GET /v1/roles` returns four; generated clients pick up the enum from contracts `v2.0.0` (BR-023) | todo | |
 | P1-018 | `audit_log` table and recorder | BE | 007 | As `03-erd.md` §3.2. Every mutating admin route writes exactly one row in the same transaction, none if it rolls back; asserted over every registered mutating route (BR-018) | todo | |
-| P1-019 | `api_keys` v2 shape and `resolve_api_key` | BE | 010 | As `03-erd.md` §3.2: `kind`, `prefix`, `allowed_origins` and the CHECK added, `permissions` dropped; `resolve_api_key` is `SECURITY DEFINER` and returns only its five columns (BR-003, BR-028) | todo | |
+| P1-019 | `api_keys` v2 shape and `resolve_api_key` | BE | 010 | As `03-erd.md` §3.2: `allowed_origin` (one URL) added, `permissions` and `key_prefix` dropped, no `kind`; `resolve_api_key` is `SECURITY DEFINER` and returns only its four columns (BR-003, BR-028) | todo | |
 | P1-081 | Time in WIB everywhere | BE | 007, 013 | The pool sets `TimeZone = 'Asia/Jakarta'` on every connection; every JSON timestamp ends in `+07:00`; a timestamp sent without an offset → `422`; a test asserts no response contains a `Z` timestamp (BR-007) | todo | |
+| P1-082 | Drop `tenants.currency` | BE/FE | 010, 011 | Migration drops the column; the login query, `Session.tenant` and settings no longer carry `currency`; money objects still say `IDR`; the web app's generated types and session fixture updated (BR-006, BR-029) | todo | |
 
 ---
 
@@ -76,15 +77,15 @@ needs them.
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
 | P1-020 | `brands` schema + composite FK to tenant | BE | 010 | As `03-erd.md` §3.3; unique slug per tenant including archived (BR-004, BR-030) | todo | |
-| P1-021 | Brand CRUD API | BE | 020 | As §6.1 (BR-010, BR-012, BR-030) | todo | |
+| P1-021 | Brand CRUD API | BE | 020 | As §6.1; no `version`, no `If-Match` (BR-010, BR-012, BR-030) | todo | |
 | P1-022 | `categories` schema, ltree, slugify, path trigger | BE | 010 | As `03-erd.md` §3.7; a move rewrites every descendant path in one statement (BR-032) | todo | |
 | P1-023 | Category cycle guard + same-name sibling handling | BE | 022 | Moving a node beneath its own descendant errors; siblings named alike get `_1` labels (BR-034, BR-035) | todo | |
 | P1-024 | Category API, `kind` filter, depth-limited fetch | BE | 022 | As §6.2; sending `path` → `422`; deleting a category in use → `409 category_in_use` with counts (BR-008, BR-036) | todo | |
 | P1-025 | `products` schema incl. `slug`, `attributes`, `option_names` | BE | 020 | As `03-erd.md` §3.3; no quantity column anywhere (BR-017, BR-042) | todo | |
-| P1-026 | `variants` schema, partial unique SKU index, composite FK | BE | 025 | Many null SKUs allowed; non-null unique per tenant; one live variant per option combination (BR-039, BR-040) | todo | |
+| P1-026 | `variants` schema, partial unique SKU index, composite FK | BE | 025 | Many null SKUs allowed; non-null unique per tenant; one live variant per option combination; `variant_price()` returns the sale price only inside its schedule, and a sale price not below the regular price is refused (BR-039, BR-040, BR-046) | todo | |
 | P1-027 | `product_categories` join, multi-`kind` membership | BE | 022, 025 | One product in 3 trees of different kinds at once; a cross-tenant link is refused (BR-004, BR-031) | todo | |
 | P1-028 | Product CRUD, `If-Match`, slug, server-managed fields refused | BE | 025, 027 | As §7.1; changing the title never changes the slug (BR-008, BR-009, BR-010, BR-012, BR-042) | todo | |
-| P1-029 | Variant CRUD | BE | 026 | As §7.2; a duplicate SKU → `409 duplicate_sku` naming the holder (BR-039) | todo | |
+| P1-029 | Variant CRUD | BE | 026 | As §7.2; a duplicate SKU → `409 duplicate_sku` naming the holder; `regular_price`, `sale_price` and schedule writable, `price`/`on_sale` read-only (BR-039, BR-046) | todo | |
 | P1-030 | Product list: trigram search, filters, cursor pagination | BE | 028 | p95 < 600 ms with 10k products; `category_id` includes descendants; exact SKU matches | todo | |
 | P1-060 | Job runner (Redis Streams) + `jobs` table + `GET /v1/jobs/{id}` | BE | 007 | As §9 and `03-erd.md` §3.2; a job killed mid-run is redelivered and finishes once (BR-060, BR-063) | todo | |
 | P1-040 | `PUT /variant-matrix`: server-side diff, one transaction | BE | 029 | As §7.3: created, updated, restored and archived counted correctly (BR-040, BR-041) | todo | |
@@ -101,7 +102,7 @@ needs them.
 | P1-033 | Product list screen: search, filters, saved state | FE | 030 | Filters survive navigation and reload | todo | |
 | P1-034 | Product editor: fields, slug, brand picker, category multi-select | FE | 028 | Unsaved-changes prompt; editing a slug warns that old links break (BR-042) | todo | |
 | P1-046 | **Variant matrix editor**: grid, paste from Excel, fill-down | FE | 040 | A 2×5 grid renders 10 cells and saves in one request; a failed row is highlighted with its error (BR-041) | todo | |
-| P1-047 | Bulk price adjustment in the matrix (± amount / %) | FE | 046 | A preview shows before it applies | todo | |
+| P1-047 | Bulk price adjustment in the matrix (± amount / %) | FE | 046 | Applies to regular or sale price, chosen by the user; a preview shows before it applies (BR-046) | todo | |
 | P1-048 | Media library: drag-drop, direct R2 upload, reorder, attach to variant | FE | 043 | Image bytes never pass through the API (BR-051) | todo | |
 | P1-075 | Publish flow in the editor | FE | 049, 046 | Every publish-check failure links to its field or matrix cell (BR-038) | todo | |
 | P1-076 | Product list bulk actions (status, price) via bulk upsert | FE | 033, 072 | Per-row failures shown inline; successes stay applied (BR-043) | todo | |
@@ -161,12 +162,12 @@ order; a minimal reference website built from the public docs alone goes product
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-200 | API key API: create, list, edit origins, revoke | BE | 019, 018 | As §4; plaintext returned once; publishable without origins → `422`; origins exact `scheme://host[:port]` (BR-028, BR-083) | todo | |
+| P1-200 | API key API: create, list, edit origins, revoke | BE | 019, 018 | As §4; plaintext returned once; missing or malformed `allowed_origin` → `422`; it must be exact `scheme://host[:port]` (BR-028, BR-083) | todo | |
 | P1-201 | API keys screen | FE | 200 | Copy-once UI with an explicit warning; link to the storefront docs (BR-028) | todo | |
-| P1-202 | Storefront route tree + key middleware | BE | 019, 015 | As §11.2: `invalid_api_key`, `origin_not_allowed` without ACAO, `secret_key_in_browser`, preflight for any origin; revoked key dead within 60 s; storefront and admin packages do not import each other (BR-003, BR-083, BR-084, BR-085) | todo | |
-| P1-203 | Storefront views + catalog routes | BE | 202, 030, 044 | As §11.4; handlers query only the views; draft and archived products never appear; p95 < 300 ms (BR-080, BR-081) | todo | |
+| P1-202 | Storefront route tree + key middleware | BE | 019, 015 | As §11.2: `invalid_api_key`; browser request from a foreign origin → `origin_not_allowed` without ACAO; same key with no `Origin` accepted; preflight for any origin; revoked key dead within 60 s; storefront and admin packages do not import each other (BR-003, BR-083, BR-085) | todo | |
+| P1-203 | Storefront views + catalog routes | BE | 202, 030, 044 | As §11.4; handlers query only the views; draft and archived products never appear; p95 < 300 ms ; `price` is the effective price and `on_sale` is set while a sale is active (BR-046, BR-080, BR-081) | todo | |
 | P1-204 | `carts`, `cart_items`, `orders.cart_id`; cart routes | BE | 203, 100 | As §11.5 and `03-erd.md` §3.5; cart id is v4; prices never stored; `price` field → `422 unknown_field` (BR-005, BR-087, BR-089) | todo | |
-| P1-205 | **Checkout** | BE | 204, 101 | As §11.7 (bank transfer, before shipping and Midtrans land); 20 parallel checkouts of one cart → one order, all 20 responses carry it; replay → `200` same order; `item_unavailable` leaves the cart untouched; guest `order_token` (BR-088, BR-089, BR-090, BR-091) | todo | |
+| P1-205 | **Checkout** | BE | 204, 101 | As §11.7 (bank transfer, before shipping and Midtrans land); 20 parallel checkouts of one cart → one order, all 20 responses carry it; replay → `200` same order; `item_unavailable` leaves the cart untouched; guest `order_token`; a sale that ends while items sit in the cart is charged at the regular price (BR-088, BR-089, BR-090, BR-091) | todo | |
 | P1-206 | Customer accounts: register, login, refresh rotation, logout | BE | 202, 100 | As §11.8; tokens in the body; reused refresh token revokes the session; tenant-B key with tenant-A token → `401`; customer token on any admin route → `401` (BR-021, BR-086, BR-092, BR-093) | todo | |
 | P1-207 | Password reset | BE | 206, 226 | As §11.8; link valid 30 min, single use, revokes every session; always `202`; a Google-only customer can add a password (BR-094) | todo | |
 | P1-208 | `me`, order history, guest order lookup | BE | 205, 206 | As §11.9; cart follows the shopper after sign-in; one order token never opens another order (BR-082, BR-091, BR-095) | todo | |
@@ -179,16 +180,16 @@ order; a minimal reference website built from the public docs alone goes product
 | P1-220 | Midtrans at checkout: `payments` table, Snap transaction | BE | 219, 216 | As §11.7; amount equals order total; attempt ids `ERG-000123`, `-2`, …; Midtrans down → order kept, `payment_unavailable` (BR-122, BR-123) | todo | |
 | P1-221 | Midtrans notification webhook | BE | 220 | As §11.10; bad signature → `401`, nothing changes; status confirmed by Get Status API; `settlement` marks paid once; a replayed notification is a no-op; amount mismatch never marks paid (BR-003, BR-124, BR-125) | todo | |
 | P1-222 | Pay-again route | BE | 221, 208 | As §11.10; a live attempt's link is reused; an expired one gets a new attempt; paid or cancelled → `422` (BR-126) | todo | |
-| P1-223 | Google sign-in | BE | 206, 216 | As §11.8; wrong `aud`, unverified email or bad signature → `401`; existing email account is linked, not duplicated (BR-127) | todo | |
+| P1-223 | Google sign-in + `customer_identities` table | BE | 206, 216 | As §11.8; wrong `aud`, unverified email or bad signature → `401`; existing verified-email account is linked through a `customer_identities` row, not duplicated; the same Google account cannot link to two customers in one shop (BR-127) | todo | |
 | P1-228 | Order emails: placed, payment received, shipped | BE | 226, 205, 221, 102 | Each email is sent once per event, from the shop's name, with courier and tracking on "shipped" (BR-128) | todo | |
 | P1-229 | Order detail shows payment attempts and chosen shipping | FE | 220, 109 | Attempts newest first with Midtrans status; `mark-paid` on a Midtrans order warns it is an override (BR-074) | todo | |
-| P1-209 | Storefront rate limits | BE | 202 | Publishable per IP and per key, secret per key, login, checkout, as BR-014; headers on every response | todo | |
-| P1-210 | Storefront auth matrix suite | BE | 208 | Table-driven over key kind × origin × fetch-metadata × token presence against every storefront route (BR-082–BR-086) | todo | |
+| P1-209 | Storefront rate limits | BE | 202 | Browser requests per IP and per key, server requests per key and IP, login, checkout, as BR-014; headers on every response | todo | |
+| P1-210 | Storefront auth matrix suite | BE | 208 | Table-driven over origin (allowed, foreign, absent) × token presence against every storefront route (BR-082, BR-083, BR-085, BR-086) | todo | |
 | P1-211 | **Customer isolation suite** | BE | 208 | Two tenants × two customers; zero leakage both ways on every customer-scoped route; extends `P1-008` to the storefront tree (BR-001, BR-082) | todo | |
 | P1-213 | Public storefront OpenAPI at `/v1/storefront/openapi.json` + docs page | CT/BE | 222, 223, 224 | Every §11.3 route documented; the file lives in contracts and is served by the API | todo | |
 | P1-214 | Nightly retention job | BE | 204, 206 | Expired open carts and expired or revoked sessions deleted; checked-out carts kept (BR-096) | todo | |
-| P1-215 | Customer PII purge job | BE | 206, 060 | Purges one customer's PII from `customers`, `orders.customer`, `orders.shipping_address`; catalog untouched; audited (BR-097) | todo | |
-| P1-212 | Reference website from the public docs alone | FE | 213, 222, 223 | A throwaway site outside `new-commerce-web`, using only the docs and a publishable key: product → cart → shipping choice → guest checkout paid with Midtrans sandbox → order lookup, and Google sign-in → order history | todo | |
+| P1-215 | Customer PII purge job | BE | 206, 060 | Purges one customer's PII from `customers`, `customer_identities`, `orders.customer`, `orders.shipping_address`; catalog untouched; audited (BR-097) | todo | |
+| P1-212 | Reference website from the public docs alone | FE | 213, 222, 223 | A throwaway site outside `new-commerce-web`, using only the docs and an API key: product → cart → shipping choice → guest checkout paid with Midtrans sandbox → order lookup, and Google sign-in → order history | todo | |
 
 ---
 
@@ -268,7 +269,7 @@ must not happen on storage that has never been restored from.
 | P1-061 | Catalog export templates for 5 marketplaces | Marketplace CSV export retired (BR-061); v2 imports instead |
 | P1-062 | Export reports incomplete channel mappings | Went with P1-061 (BR-062) |
 | P1-063 | Export screen | Went with P1-061. Order export is `P1-112` |
-| P1-065 | API keys with permission sets | Replaced by publishable/secret keys: `P1-019`, `P1-200` |
+| P1-065 | API keys with permission sets | Replaced by one storefront key with one allowed origin: `P1-019`, `P1-200` |
 | P1-067 | API keys screen (v1) | Replaced by `P1-201` |
 | P1-069 | "No stock yet" empty state | Stock is out of scope, not coming later (BR-017) |
 
