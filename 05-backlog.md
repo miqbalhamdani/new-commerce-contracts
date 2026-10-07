@@ -60,7 +60,7 @@ exists in 18 can never reach a 16 server (`P1-002`). Revisit only once the machi
 | P1-018 | `audit_log` table and recorder | BE | 007 | As `03-erd.md` §3.2. Every mutating admin route writes exactly one row in the same transaction, none if it rolls back; asserted over every registered mutating route (BR-018) | review | Iqbal Hamdani |
 | P1-019 | `api_keys` v2 shape and `resolve_api_key` | BE | 010 | As `03-erd.md` §3.2: `allowed_origin` (one URL) added, `permissions` and `key_prefix` dropped, no `kind`; `resolve_api_key` is `SECURITY DEFINER` and returns only its four columns (BR-003, BR-028) | review | Iqbal Hamdani |
 | P1-081 | Time in WIB everywhere | BE | 007, 013 | The pool sets `TimeZone = 'Asia/Jakarta'` on every connection; every JSON timestamp ends in `+07:00`; a timestamp sent without an offset → `422`; a test asserts no response contains a `Z` timestamp (BR-007) | review | Iqbal Hamdani |
-| P1-082 | Drop `tenants.currency` | BE/FE | 010, 011 | Migration drops the column; the login query, `Session.tenant` and settings no longer carry `currency`; money objects still say `IDR`; the web app's generated types and session fixture updated (BR-006, BR-029) | todo | |
+| P1-082 | Drop `tenants.currency` | BE/FE | 010, 011 | Migration drops the column; the login query, `Session.tenant` and settings no longer carry `currency`; money objects still say `IDR`; the web app's generated types and session fixture updated (BR-006, BR-029) | review | Iqbal Hamdani |
 
 ---
 
