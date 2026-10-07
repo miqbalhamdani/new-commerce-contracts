@@ -188,13 +188,16 @@ Four seeded, fixed roles (BR-023). A permission is `resource:action`, with `read
 | `api_keys:read` | ✓ | ✓ | | |
 | `api_keys:write` | ✓ | ✓ | | |
 | `audit_log:read` | ✓ | ✓ | | |
-| `settings:read` | ✓ | ✓ | ✓ | ✓ |
+| `settings:read` | ✓ | ✓ | | ✓ |
 | `settings:write` | ✓ | | | |
 
 - **`owner` is `admin` plus `settings:write`, nothing more.** Settings hold the tenant itself and,
   later, billing.
 - **`ops` works orders and customers and reads the catalog.** v2 makes `ops` read-only on products
   (in v1 it could write them); catalog editing belongs to owner and admin.
+- **`ops` does not read settings.** The shop's settings are owner and admin business, read-only for
+  `viewer`; `ops` sees no Settings screen at all (BR-025). The session already carries the time
+  zone `ops` needs to display times.
 - **`orders:write` covers every transition**, manual entry and refund recording. There is no
   separate `orders:cancel`.
 - **There is no `customers:write`.** Staff never create customer accounts or touch credentials
