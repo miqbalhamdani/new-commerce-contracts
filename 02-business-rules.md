@@ -37,11 +37,13 @@ very confusing to debug.
 
 ### BR-003 The tenant comes from a credential, never from the request
 No header, query parameter or body field can select a tenant. Admin requests take it from the
-staff token; storefront requests take it from the API key (BR-086). Exactly three reads cross
+staff token; storefront requests take it from the API key (BR-086). Exactly four reads cross
 tenants on a request path, each through its own `SECURITY DEFINER` function that returns only
 what it must:
 
 - staff login: `id, tenant_id, password_hash, status, role`;
+- staff token refresh: `id, tenant_id, user_id, expires_at, revoked_at` (the cookie carries no
+  tenant, and taking one from the request is what this rule forbids);
 - API key resolution: `id, tenant_id, allowed_origin, revoked_at`;
 - Midtrans notification: `webhook_id` → `tenant_id`, encrypted server key, environment. The tenant
   is trusted only after the notification's signature verifies with that key (BR-124).
@@ -153,7 +155,7 @@ default rather than leaked by default.
 ### BR-014 Rate limits
 | Caller | Limit | Where |
 |---|---|---|
-| Admin session (staff JWT) | 600 req/min per user | Redis sliding window |
+| Admin session (staff JWT) | 100 req/min per user | Redis sliding window |
 | API key, browser request (has `Origin`) | 120 req/min per IP, 3,000 req/min per key | Cloudflare edge + Redis |
 | API key, server request (no `Origin`) | 600 req/min per key per IP, burst 100 | Redis sliding window |
 | Login and password reset (staff and customer) | 10 per 15 min per email, 30 per 15 min per IP | Redis |
