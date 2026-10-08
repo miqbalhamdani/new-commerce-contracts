@@ -882,6 +882,12 @@ not match our field names. `option:<Name>` columns build the variant matrix; row
 `title` become one product. Delimiter (`,` or `;`), encoding and BOM are detected server-side.
 10,000 variants finish in under 5 minutes.
 
+Prices in the file are whole rupiah (`199000` or `199.000` is Rp 199.000); the API stores minor
+units. A row whose SKU exists updates that variant (`on_conflict: update`) or fails as
+`duplicate_sku` (`error`); any other row joins the product its `title` names in this file,
+created as a draft. A redelivered job resumes after the last batch it committed, so a row is
+never applied twice (BR-060).
+
 ---
 
 ## 8. Media (M2)
