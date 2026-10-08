@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -413,6 +413,105 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /products:
+    post:
+      operationId: createProduct
+      summary: Create a product
+      description: |
+        New products are `draft` (BR-037). The slug is derived from the title, with `-2`, `-3`, …
+        when another product of this tenant (archived included) holds it; it is editable later
+        and never follows the title (BR-042). `brand_id` and `category_ids` must name live rows
+        of this tenant. Requires `products:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductCreate"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /products/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getProduct
+      summary: One product
+      responses:
+        "200":
+          description: The product.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateProduct
+      summary: Edit a product
+      description: |
+        `If-Match` is required (BR-010). `null` clears `description` or `brand_id`;
+        `category_ids` and `attributes` replace the whole value. `slug` must be lower-case
+        `a-z0-9-` and unique in the tenant. `option_names` changes only through the variant
+        matrix and is `422` here. `status: "active"` runs the publish check (`422
+        publish_check_failed`, BR-038); `"draft"` unpublishes; archiving is `DELETE`.
+        Requires `products:write`.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductUpdate"
+      responses:
+        "200":
+          description: The product, with its new version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    delete:
+      operationId: archiveProduct
+      summary: Archive a product
+      description: |
+        Sets `status` to `archived` and `archived_at`; orders that reference it are untouched
+        (BR-012, BR-045). There is no restore in this version. Requires `products:write`.
+      responses:
+        "204":
+          description: Archived.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
 
   securitySchemes:
@@ -726,6 +825,173 @@ components:
         parent_id:
           type: [string, "null"]
           format: uuid
+
+    Ref:
+      type: object
+      description: A reference expanded on read (04-api-spec.md §1).
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+
+    CategoryRef:
+      type: object
+      required: [id, kind, name, path]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/CategoryKind"
+        name:
+          type: string
+        path:
+          type: string
+
+    ProductStatus:
+      type: string
+      enum: [draft, active, archived]
+
+    Media:
+      type: object
+      description: One product image (04-api-spec.md §8). URLs are built on read; the database stores keys (BR-050).
+      required: [id, product_id, variant_id, mime_type, bytes, width, height, position, url, derivatives, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        variant_id:
+          type: [string, "null"]
+          format: uuid
+        mime_type:
+          type: string
+        bytes:
+          type: integer
+          format: int64
+        width:
+          type: [integer, "null"]
+        height:
+          type: [integer, "null"]
+        position:
+          type: integer
+        url:
+          type: string
+        derivatives:
+          type: object
+          description: '`{"1600": url, "800": url, "200": url}` once the worker has made them (BR-052); `{}` before.'
+          additionalProperties:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Product:
+      type: object
+      required: [id, version, title, slug, description, status, brand, categories, attributes,
+                 option_names, variant_count, media, archived_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          description: Send it back in `If-Match`; never in a body (BR-010).
+        title:
+          type: string
+        slug:
+          type: string
+          examples: ["erigo-basic-tee"]
+        description:
+          type: [string, "null"]
+        status:
+          $ref: "#/components/schemas/ProductStatus"
+        brand:
+          oneOf:
+            - $ref: "#/components/schemas/Ref"
+            - type: "null"
+        categories:
+          type: array
+          description: Every category the product sits in, all kinds, by kind then path.
+          items:
+            $ref: "#/components/schemas/CategoryRef"
+        attributes:
+          type: object
+          additionalProperties: true
+        option_names:
+          type: array
+          items:
+            type: string
+        variant_count:
+          type: integer
+          description: Live variants.
+        media:
+          type: array
+          items:
+            $ref: "#/components/schemas/Media"
+        archived_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ProductCreate:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        brand_id:
+          type: string
+          format: uuid
+        category_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        attributes:
+          type: object
+          additionalProperties: true
+
+    ProductUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+        slug:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+        description:
+          type: [string, "null"]
+        brand_id:
+          type: [string, "null"]
+          format: uuid
+        category_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        attributes:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum: [draft, active]
 
     Money:
       type: integer
