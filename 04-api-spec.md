@@ -357,7 +357,7 @@ DELETE /v1/api-keys/{id}
 GET /v1/audit-log?subject_type=order&subject_id=0192…
 200 OK
 { "data": [
-    { "id": "8812", "action": "order.transition",
+    { "action": "order.transition",
       "actor": { "id": "0192…", "name": "Budi" },
       "subject_type": "order", "subject_id": "0192…",
       "before": { "status": "paid" }, "after": { "status": "processing" },

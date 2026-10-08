@@ -206,6 +206,7 @@ CREATE TABLE audit_log (                -- BR-018, BR-073
     created_at   timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ON audit_log (tenant_id, subject_type, subject_id, created_at DESC);
+CREATE INDEX ON audit_log (tenant_id, created_at DESC);      -- the unfiltered and actor/date views (P1-077)
 
 -- BR-060. Redis Streams delivers jobs; this row is what GET /v1/jobs/{id} reads,
 -- so job state survives a Redis restart.
