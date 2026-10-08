@@ -101,7 +101,7 @@ needs them.
 | P1-032 | Category manager: tree, drag-to-move, confirmation dialog | FE | 024 | The move dialog states descendant and product counts (BR-033) | review | Iqbal Hamdani |
 | P1-033 | Product list screen: search, filters, saved state | FE | 030 | A Category column shows each product's main-tree categories; filters survive navigation and reload | review | Iqbal Hamdani |
 | P1-034 | Product editor: fields, slug, brand picker, category multi-select | FE | 028 | Unsaved-changes prompt; editing a slug warns that old links break (BR-042) | review | Iqbal Hamdani |
-| P1-046 | **Variant matrix editor**: grid, paste from Excel, fill-down | FE | 040 | A 2×5 grid renders 10 cells and saves in one request; a failed row is highlighted with its error (BR-041) | todo | |
+| P1-046 | **Variant matrix editor**: grid, paste from Excel, fill-down | FE | 040 | A 2×5 grid renders 10 cells and saves in one request; a failed row is highlighted with its error (BR-041) | review | Iqbal Hamdani |
 | P1-047 | Bulk price adjustment in the matrix (± amount / %) | FE | 046 | Applies to regular or sale price, chosen by the user; a preview shows before it applies (BR-046) | todo | |
 | P1-048 | Media library: drag-drop, direct R2 upload, reorder, attach to variant | FE | 043 | Image bytes never pass through the API (BR-051) | todo | |
 | P1-075 | Publish flow in the editor | FE | 049, 046 | Every publish-check failure links to its field or matrix cell (BR-038) | todo | |
