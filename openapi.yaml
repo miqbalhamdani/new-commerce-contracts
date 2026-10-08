@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -35,8 +35,7 @@ servers:
     description: Local development, against the host services from `P1-000`.
 
 # Every admin endpoint requires a staff bearer token unless it opts out with `security: []`.
-# The unauthenticated ones are login and refresh; accept-invite joins them when P1-064
-# adds it. Storefront security schemes are declared below for the storefront document.
+# The unauthenticated ones are login, refresh and accept-invite. Storefront security schemes are declared below for the storefront document.
 security:
   - bearerAuth: []
 
@@ -129,6 +128,37 @@ paths:
                 type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /auth/accept-invite:
+    post:
+      operationId: acceptInvite
+      summary: Set a password from an invitation link and sign in
+      description: |
+        The token is the one in the invitation email: signed, expiring after 7 days, never
+        stored (BR-026). It works while the user is `invited`; an expired, forged or already-used
+        token is `422` on `token`. On success the user is `active` and signed in, with the refresh
+        cookie set, exactly like login.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInvite"
+      responses:
+        "200":
+          description: Signed in.
+          headers:
+            Set-Cookie:
+              description: The refresh token, httpOnly, Secure, SameSite=Lax.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
 
   /roles:
     get:
@@ -935,6 +965,136 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MediaList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /users:
+    get:
+      operationId: listUsers
+      summary: The shop's staff
+      description: Requires `users:read`. Sorted by when they were added.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [invited, active, disabled]
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [owner, admin, ops, viewer]
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of users.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /users/invite:
+    post:
+      operationId: inviteUser
+      summary: Invite someone by email
+      description: |
+        Creates an `invited` user and emails them a link after the change commits (BR-026,
+        BR-128). An email already used in any shop is `422` on `email` (BR-020). Only an owner
+        can invite an owner (BR-023). Requires `users:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteUser"
+      responses:
+        "201":
+          description: The invited user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /users/{id}/resend-invite:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: resendInvite
+      summary: Email the invitation again
+      description: Only while the user is `invited`; otherwise `422`. Requires `users:write`.
+      responses:
+        "204":
+          description: Sent.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      operationId: updateUser
+      summary: Change a user's role, or disable or re-enable them
+      description: |
+        No `If-Match` (BR-010). `status` is `active` (re-enable a disabled user) or `disabled`;
+        an invited user becomes active only by accepting. Disabling revokes their refresh
+        tokens, so they are out within 15 minutes (BR-027). Only an owner can grant `owner` or
+        change an owner (BR-023), else `403`. The last active owner cannot be demoted or
+        disabled (`422`). Requires `users:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    delete:
+      operationId: disableUser
+      summary: Disable a user
+      description: Sets `disabled`; the row is never deleted (BR-027). Same rules as `PATCH`.
+      responses:
+        "204":
+          description: Disabled.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1916,6 +2076,81 @@ components:
         job_id:
           type: string
           format: uuid
+
+    AcceptInvite:
+      type: object
+      required: [token, password]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          examples: ["inv_9c2e…"]
+        password:
+          type: string
+          format: password
+          minLength: 8
+
+    User:
+      type: object
+      required: [id, email, name, role, status, last_login_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [owner, admin, ops, viewer]
+        status:
+          type: string
+          enum: [invited, active, disabled]
+        last_login_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    UserPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        next_cursor:
+          type: [string, "null"]
+
+    InviteUser:
+      type: object
+      required: [email, name, role]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          minLength: 1
+        role:
+          type: string
+          enum: [owner, admin, ops, viewer]
+
+    UserUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        role:
+          type: string
+          enum: [owner, admin, ops, viewer]
+        status:
+          type: string
+          enum: [active, disabled]
 
     Money:
       type: integer

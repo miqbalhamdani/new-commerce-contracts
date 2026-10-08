@@ -120,7 +120,7 @@ needs them.
 | P1-066 | Team & roles screen | FE | 064 | `ops` sees no user-management navigation at all (BR-025) | todo | |
 | P1-068 | Onboarding wizard: settings, first brand, first category tree | FE | 021, 024, 071 | `01-product-requirements.md` §4; defaults pre-filled (BR-029) | todo | |
 | P1-078 | Audit log screen | FE | 077 | Shows actor, action, before/after per row (BR-018) | todo | |
-| P1-079 | Accept invitation screen | FE | 064 | The invite link opens a form for name and password; submitting `POST /v1/auth/accept-invite` signs the user in. An expired or used token says so and tells them to ask for a new invitation (BR-026) | todo | |
+| P1-079 | Accept invitation screen | FE | 064 | The invite link opens a form for a password (the name was set at invite); submitting `POST /v1/auth/accept-invite` signs the user in. An expired or used token says so and tells them to ask for a new invitation (BR-026) | todo | |
 | P1-083 | Settings screen | FE | 071 | Name, time zone and order prefix, per `01-product-requirements.md` §4; only `owner` sees save; a changed prefix says it applies to new orders only (BR-025, BR-029, BR-077) | todo | |
 
 ---
