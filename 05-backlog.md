@@ -97,7 +97,7 @@ needs them.
 | P1-049 | Publish check on `draft → active` | BE | 040, 043 | `422 publish_check_failed` lists every failure, including zero weight, with its variant id (BR-038) | review | Iqbal Hamdani |
 | P1-072 | `POST /v1/products/bulk` | BE | 029, 049 | As §7.5: up to 500 rows, per-row results by index, one bad row rolls back nothing (BR-043) | review | Iqbal Hamdani |
 | P1-073 | CSV import job: server-side parse, column mapping, `errors.csv` | BE | 060, 072 | 10,000 variants in < 5 min; `,` and `;` delimiters and BOM handled; every error cites its original line number (BR-044) | review | Iqbal Hamdani |
-| P1-031 | Brand manager screen | FE | 021 | `01-product-requirements.md` §4 | todo | |
+| P1-031 | Brand manager screen | FE | 021 | `01-product-requirements.md` §4 | review | Iqbal Hamdani |
 | P1-032 | Category manager: tree, drag-to-move, confirmation dialog | FE | 024 | The move dialog states descendant and product counts (BR-033) | todo | |
 | P1-033 | Product list screen: search, filters, saved state | FE | 030 | A Category column shows each product's main-tree categories; filters survive navigation and reload | todo | |
 | P1-034 | Product editor: fields, slug, brand picker, category multi-select | FE | 028 | Unsaved-changes prompt; editing a slug warns that old links break (BR-042) | todo | |
