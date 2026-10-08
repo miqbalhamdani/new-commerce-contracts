@@ -209,6 +209,9 @@ CREATE INDEX ON audit_log (tenant_id, subject_type, subject_id, created_at DESC)
 
 -- BR-060. Redis Streams delivers jobs; this row is what GET /v1/jobs/{id} reads,
 -- so job state survives a Redis restart.
+-- Stream `jobs`, consumer group `workers`. A message idle 60 s on a dead consumer is
+-- reclaimed (XAUTOCLAIM); the 5th delivery that still fails marks the job failed. A job
+-- already done or failed is acknowledged and skipped, so a redelivery finishes it once.
 CREATE TABLE jobs (
     id           uuid PRIMARY KEY,
     tenant_id    uuid NOT NULL REFERENCES tenants(id),
