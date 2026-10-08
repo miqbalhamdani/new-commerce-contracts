@@ -449,14 +449,15 @@ registered for an object that was never uploaded.
 
 ### BR-052 Image derivatives are made asynchronously
 The worker makes 1600, 800 and 200 px WebP derivatives (libvips). Derivatives are ready within
-15 s at p95. Uploading never blocks the product form.
+15 s at p95. Uploading never blocks the product form. A derivative is never wider than its
+original, which is not enlarged; the job also records the original's width and height.
 
 ### BR-053 Bucket layout, access and link lifetimes
 One bucket, every object under its tenant's prefix.
 
 | Prefix | Contents | Access |
 |---|---|---|
-| `{tenant}/products/{product}/{hash}…` | Product images: the original plus three `.webp` derivatives | **Public** through the image domain, edge-cached |
+| `{tenant}/products/{product}/{hash}.{ext}`, `…/{hash}_{1600,800,200}.webp` | Product images: the original plus three `.webp` derivatives | **Public** through the image domain, edge-cached |
 | `{tenant}/jobs/{job}/upload.csv` | Uploaded product CSV | Presigned `PUT`, 10 min; read by the worker only |
 | `{tenant}/jobs/{job}/errors.csv` | Error reports for CSV and marketplace imports | Presigned `GET`, 15 min; deleted after 30 days |
 | `{tenant}/exports/{job}.csv` | Order exports | Presigned `GET`, 15 min; deleted after 7 days |
