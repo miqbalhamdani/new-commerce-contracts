@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -1104,6 +1104,50 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
+  /settings:
+    get:
+      operationId: getSettings
+      summary: The shop's own settings
+      description: Requires `settings:read` (owner, admin, viewer).
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    patch:
+      operationId: updateSettings
+      summary: Change the shop's name, time zone or order prefix
+      description: |
+        Only the owner (`settings:write`, BR-029). `timezone` is an IANA name; it is for
+        display only, the wire stays WIB (BR-007). `order_prefix` is 2–6 of `A-Z0-9` and applies
+        to new orders only (BR-077). `id`, `slug` and `status` are not writable (BR-008). No
+        `If-Match`: last save wins (BR-010). There is no currency setting (BR-029).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsUpdate"
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
 components:
 
   securitySchemes:
@@ -2151,6 +2195,40 @@ components:
         status:
           type: string
           enum: [active, disabled]
+
+    Settings:
+      type: object
+      required: [id, name, slug, order_prefix, timezone, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        order_prefix:
+          type: string
+          examples: ["ERG"]
+        timezone:
+          type: string
+          examples: ["Asia/Jakarta"]
+        status:
+          type: string
+          enum: [active, suspended, closed]
+
+    SettingsUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        timezone:
+          type: string
+        order_prefix:
+          type: string
+          pattern: "^[A-Z0-9]{2,6}$"
 
     Money:
       type: integer
