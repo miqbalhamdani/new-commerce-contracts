@@ -2151,7 +2151,7 @@ components:
       properties:
         r2_key:
           type: string
-          examples: ["0192-tenant/jobs/0193…/upload.csv"]
+          examples: ["jobs/0192-tenant/0193…/upload.csv"]
         column_mapping:
           type: object
           description: |

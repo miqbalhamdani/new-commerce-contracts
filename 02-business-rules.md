@@ -453,19 +453,21 @@ The worker makes 1600, 800 and 200 px WebP derivatives (libvips). Derivatives ar
 original, which is not enlarged; the job also records the original's width and height.
 
 ### BR-053 Bucket layout, access and link lifetimes
-One bucket, every object under its tenant's prefix.
+One bucket, every object keyed by its tenant. Product images start with the tenant; temporary
+files start with their kind (`jobs/`, `exports/`) and then the tenant, because R2 lifecycle rules
+match a key's start only, and one rule must cover every tenant.
 
 | Prefix | Contents | Access |
 |---|---|---|
 | `{tenant}/products/{product}/{hash}.{ext}`, `…/{hash}_{1600,800,200}.webp` | Product images: the original plus three `.webp` derivatives | **Public** through the image domain, edge-cached |
-| `{tenant}/jobs/{job}/upload.csv` | Uploaded product CSV | Presigned `PUT`, 10 min; read by the worker only |
-| `{tenant}/jobs/{job}/errors.csv` | Error reports for CSV and marketplace imports | Presigned `GET`, 15 min; deleted after 30 days |
-| `{tenant}/exports/{job}.csv` | Order exports | Presigned `GET`, 15 min; deleted after 7 days |
+| `jobs/{tenant}/{job}/upload.csv` | Uploaded product CSV | Presigned `PUT`, 10 min; read by the worker only; deleted after 30 days |
+| `jobs/{tenant}/{job}/errors.csv` | Error reports for CSV and marketplace imports | Presigned `GET`, 15 min; deleted after 30 days |
+| `exports/{tenant}/{job}.csv` | Order exports | Presigned `GET`, 15 min; deleted after 7 days |
 
 Product images are the one public class: the storefront API returns full image-domain URLs so the
 owner's website renders them with a plain `<img>`. Keys contain a content hash, so a replaced
-image gets a new URL and an edge cache never serves a stale one. Lifetimes are enforced by R2
-lifecycle rules on the prefixes.
+image gets a new URL and an edge cache never serves a stale one. Lifetimes are enforced by two R2
+lifecycle rules: `jobs/` expires after 30 days, `exports/` after 7.
 
 ---
 

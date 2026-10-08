@@ -867,7 +867,7 @@ sequenceDiagram
 
 ```json
 POST /v1/products/import
-{ "r2_key": "0192-tenant/jobs/0193…/upload.csv",
+{ "r2_key": "jobs/0192-tenant/0193…/upload.csv",
   "column_mapping": { "Nama Produk": "title", "SKU": "sku", "Harga": "regular_price",
                       "Harga Diskon": "sale_price",
                       "Berat": "weight_grams", "Warna": "option:Colour", "Ukuran": "option:Size" },

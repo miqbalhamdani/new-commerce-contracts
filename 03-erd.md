@@ -815,8 +815,8 @@ rows filtered in the query.
 - **Carts.** An open cart expires 30 days after its last change; a nightly job deletes expired open
   carts with their items. Checked-out carts are kept: `orders.cart_id` references them (BR-096).
 - **Customer sessions.** Expired and revoked sessions are deleted nightly (BR-096).
-- **R2.** Import error reports are deleted after 30 days and order exports after 7, by R2 lifecycle
-  rules on their prefixes (BR-053).
+- **R2.** Import uploads and error reports are deleted after 30 days and order exports after 7,
+  by R2 lifecycle rules on the `jobs/` and `exports/` prefixes (BR-053).
 - **Audit log and orders.** Kept for the life of the tenant. PII in orders can be purged on
   request (BR-097).
 

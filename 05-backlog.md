@@ -108,10 +108,15 @@ needs them.
 | P1-076 | Product list bulk actions (status, price) via bulk upsert | FE | 033, 072 | Per-row failures shown inline; successes stay applied (BR-043) | review | Iqbal Hamdani |
 | P1-074 | Bulk import wizard: upload, 50-row preview, column mapping, progress, error download | FE | 073 | The browser parses only the preview (BR-044) | review | Iqbal Hamdani |
 
-> **`P1-045` is blocked** on a Cloudflare account: the R2 bucket, its lifecycle rules and the image
-> domain Worker are provisioning only an account owner can do. Until then the API runs against MinIO
-> on the host (`make storage-init`), which speaks the same S3 API; switching is configuration
-> (`S3_*`, `IMAGE_BASE_URL`).
+> **`P1-045` is blocked** on a Cloudflare account. The local half is done: `make storage-init`
+> gives MinIO the same layout, public read on `*/products/*`, and the two expiry rules. Cutover,
+> for the account owner:
+> 1. Create the R2 bucket and an API token with object read/write on it.
+> 2. Add lifecycle rules: prefix `jobs/` delete after 30 days, prefix `exports/` after 7 (BR-053).
+> 3. Serve `*/products/*` on the image domain through a Worker or R2 custom domain, edge-cached.
+> 4. Allow CORS `PUT` from the admin origin.
+> 5. Set `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_USE_SSL=true` and
+>    `IMAGE_BASE_URL`. No code changes.
 
 ### Team and settings
 
