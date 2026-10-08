@@ -88,7 +88,7 @@ needs them.
 | P1-029 | Variant CRUD | BE | 026 | As §7.2; a duplicate SKU → `409 duplicate_sku` naming the holder; `regular_price`, `sale_price` and schedule writable, `price`/`on_sale` read-only (BR-039, BR-046) | review | Iqbal Hamdani |
 | P1-030 | Product list: trigram search, filters, cursor pagination | BE | 028 | p95 < 600 ms with 10k products, categories included; each row lists its main-tree (`kind = category`) categories; `category_id` includes descendants; exact SKU matches | review | Iqbal Hamdani |
 | P1-060 | Job runner (Redis Streams) + `jobs` table + `GET /v1/jobs/{id}` | BE | 007 | As §9 and `03-erd.md` §3.2; a job killed mid-run is redelivered and finishes once (BR-060, BR-063) | review | Iqbal Hamdani |
-| P1-040 | `PUT /variant-matrix`: server-side diff, one transaction | BE | 029 | As §7.3: created, updated, restored and archived counted correctly (BR-040, BR-041) | todo | |
+| P1-040 | `PUT /variant-matrix`: server-side diff, one transaction | BE | 029 | As §7.3: created, updated, restored and archived counted correctly (BR-040, BR-041) | review | Iqbal Hamdani |
 | P1-041 | Partial-failure semantics in the matrix | BE | 040 | One duplicate SKU fails only its row; the rest save; 100 cells save in < 2 s (BR-041) | todo | |
 | P1-042 | `product_media` schema | BE | 025 | As `03-erd.md` §3.3 (BR-004, BR-050) | todo | |
 | P1-043 | Media API: presign, confirm with `HEAD` check, attach, reorder, delete | BE | 042 | As §8; a key never uploaded → `422`; keys carry the content hash (BR-051, BR-053) | todo | |
