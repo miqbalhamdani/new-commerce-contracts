@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -512,6 +512,116 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /products/{id}/variants:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listVariants
+      summary: A product's variants, in grid order
+      description: Unpaginated. Archived variants only with `archived=true`. Requires `variants:read`.
+      parameters:
+        - name: archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: The variants.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VariantList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: createVariant
+      summary: Add one variant
+      description: |
+        `option_values` has one entry per `option_names` entry and is unique among the product's
+        live variants (BR-040); it changes only through the matrix. A SKU already used in this
+        tenant is `409 duplicate_sku` naming the product that holds it (BR-039). A sale price not
+        below the regular price, or a sale that ends before it starts, is `422` (BR-046).
+        Requires `variants:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VariantCreate"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Variant"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /variants/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      operationId: updateVariant
+      summary: Edit one variant
+      description: |
+        `If-Match` on the variant's version (BR-010). `regular_price`, `sale_price` and the
+        schedule are writable; `price` and `on_sale` are read-only, and `"sale_price": null` ends
+        the sale (BR-046). `option_values` changes only through the matrix. Requires
+        `variants:write`.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VariantUpdate"
+      responses:
+        "200":
+          description: The variant, with its new version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Variant"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    delete:
+      operationId: archiveVariant
+      summary: Archive one variant
+      description: Archives (BR-012); orders keep their lines (BR-045). Requires `variants:write`.
+      responses:
+        "204":
+          description: Archived.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
 
   securitySchemes:
@@ -992,6 +1102,117 @@ components:
         status:
           type: string
           enum: [draft, active]
+
+    Variant:
+      type: object
+      required: [id, product_id, version, option_values, sku, barcode, regular_price, sale_price,
+                 sale_starts_at, sale_ends_at, price, on_sale, weight_grams, archived_at,
+                 created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        option_values:
+          type: array
+          items:
+            type: string
+        sku:
+          type: [string, "null"]
+        barcode:
+          type: [string, "null"]
+        regular_price:
+          $ref: "#/components/schemas/Money"
+        sale_price:
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        sale_starts_at:
+          type: [string, "null"]
+          format: date-time
+        sale_ends_at:
+          type: [string, "null"]
+          format: date-time
+        price:
+          $ref: "#/components/schemas/Money"
+        on_sale:
+          type: boolean
+          description: Read-only. True while the sale's schedule is running (BR-046).
+        weight_grams:
+          type: integer
+        archived_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    VariantList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Variant"
+
+    VariantCreate:
+      type: object
+      required: [option_values]
+      additionalProperties: false
+      properties:
+        option_values:
+          type: array
+          items:
+            type: string
+        sku:
+          type: string
+        barcode:
+          type: string
+        regular_price:
+          $ref: "#/components/schemas/Money"
+        sale_price:
+          $ref: "#/components/schemas/Money"
+        sale_starts_at:
+          type: string
+          format: date-time
+        sale_ends_at:
+          type: string
+          format: date-time
+        weight_grams:
+          type: integer
+          minimum: 0
+
+    VariantUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        sku:
+          type: [string, "null"]
+        barcode:
+          type: [string, "null"]
+        regular_price:
+          $ref: "#/components/schemas/Money"
+        sale_price:
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        sale_starts_at:
+          type: [string, "null"]
+          format: date-time
+        sale_ends_at:
+          type: [string, "null"]
+          format: date-time
+        weight_grams:
+          type: integer
+          minimum: 0
 
     Money:
       type: integer
