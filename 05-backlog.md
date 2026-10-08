@@ -105,7 +105,7 @@ needs them.
 | P1-047 | Bulk price adjustment in the matrix (± amount / %) | FE | 046 | Applies to regular or sale price, chosen by the user; a preview shows before it applies (BR-046) | review | Iqbal Hamdani |
 | P1-048 | Media library: drag-drop, direct R2 upload, reorder, attach to variant | FE | 043 | Image bytes never pass through the API (BR-051) | review | Iqbal Hamdani |
 | P1-075 | Publish flow in the editor | FE | 049, 046 | Every publish-check failure links to its field or matrix cell (BR-038) | review | Iqbal Hamdani |
-| P1-076 | Product list bulk actions (status, price) via bulk upsert | FE | 033, 072 | Per-row failures shown inline; successes stay applied (BR-043) | todo | |
+| P1-076 | Product list bulk actions (status, price) via bulk upsert | FE | 033, 072 | Per-row failures shown inline; successes stay applied (BR-043) | review | Iqbal Hamdani |
 | P1-074 | Bulk import wizard: upload, 50-row preview, column mapping, progress, error download | FE | 073 | The browser parses only the preview (BR-044) | todo | |
 
 > **`P1-045` is blocked** on a Cloudflare account: the R2 bucket, its lifecycle rules and the image
