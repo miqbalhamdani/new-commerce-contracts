@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -743,6 +743,142 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /media/presign:
+    post:
+      operationId: presignMedia
+      summary: Sign a direct upload to the object store
+      description: |
+        Bytes go straight from the browser to R2 with the returned URL; they never pass through
+        the API (BR-051). `product_image`: JPEG, PNG or WebP up to 20 MB, `product_id` required,
+        `media:write`. `product_import`: CSV up to 50 MB, no `product_id`, `products:write`; the
+        key carries the future job's id. The key contains the content hash (BR-053). The URL
+        lives 10 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresignRequest"
+      responses:
+        "200":
+          description: Where to PUT the bytes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresignResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /media/confirm:
+    post:
+      operationId: confirmMedia
+      summary: Record an uploaded image on a product
+      description: |
+        Checks the object's type and size against the store's `HEAD`; a key never uploaded is
+        `422` on `r2_key`. The image is appended after the product's others. Derivatives arrive
+        within ~15 s (BR-052). Confirming the same key twice returns the same image. Requires
+        `media:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmMedia"
+      responses:
+        "201":
+          description: The image.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /media/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      operationId: updateMedia
+      summary: Attach an image to a variant, or back to the product
+      description: |
+        `variant_id` must be a variant of the image's product; `null` makes it product-level. No
+        `If-Match` (BR-010). Requires `media:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MediaUpdate"
+      responses:
+        "200":
+          description: The image.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    delete:
+      operationId: deleteMedia
+      summary: Delete an image
+      description: |
+        Media is the one thing truly deleted (BR-012). The stored objects go once no other row
+        uses the key. Requires `media:write`.
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /products/{id}/media/order:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      operationId: orderMedia
+      summary: Reorder a product's images
+      description: |
+        `media_ids` is every image of the product, in the new order; anything else is `422`.
+        Requires `media:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MediaOrder"
+      responses:
+        "200":
+          description: The images, by position.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
@@ -1536,6 +1672,82 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VariantMatrixRowResult"
+
+    PresignRequest:
+      type: object
+      required: [purpose, mime_type, bytes, sha256]
+      additionalProperties: false
+      properties:
+        purpose:
+          type: string
+          enum: [product_image, product_import]
+        product_id:
+          type: string
+          format: uuid
+        mime_type:
+          type: string
+        bytes:
+          type: integer
+          format: int64
+          minimum: 1
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+
+    PresignResponse:
+      type: object
+      required: [upload_url, r2_key, expires_in]
+      properties:
+        upload_url:
+          type: string
+        r2_key:
+          type: string
+        expires_in:
+          type: integer
+          examples: [600]
+
+    ConfirmMedia:
+      type: object
+      required: [r2_key, product_id]
+      additionalProperties: false
+      properties:
+        r2_key:
+          type: string
+        product_id:
+          type: string
+          format: uuid
+        variant_id:
+          type: [string, "null"]
+          format: uuid
+
+    MediaUpdate:
+      type: object
+      required: [variant_id]
+      additionalProperties: false
+      properties:
+        variant_id:
+          type: [string, "null"]
+          format: uuid
+
+    MediaOrder:
+      type: object
+      required: [media_ids]
+      additionalProperties: false
+      properties:
+        media_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    MediaList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Media"
 
     Money:
       type: integer
