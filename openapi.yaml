@@ -414,6 +414,61 @@ paths:
           $ref: "#/components/responses/Conflict"
 
   /products:
+    get:
+      operationId: listProducts
+      summary: Products, filtered and cursor-paginated
+      description: |
+        `q` is a trigram match on the title, and an exact SKU also matches. `category_id`
+        includes its descendants. Archived products appear only with `status=archived`. Each
+        row's `categories` are its main-tree ones (`kind = category`), by path; an empty list
+        means it cannot be published (BR-038). `price_min` and `price_max` come from
+        `variant_price()` over live variants (BR-046), `null` when there are none. Target: p95
+        under 600 ms at 10k products (P1-030). Requires `products:read`.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ProductStatus"
+        - name: brand_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: category_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["-created_at", "-updated_at", "title"]
+            default: "-created_at"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of products.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
     post:
       operationId: createProduct
       summary: Create a product
@@ -1213,6 +1268,71 @@ components:
         weight_grams:
           type: integer
           minimum: 0
+
+    CategoryBrief:
+      type: object
+      required: [id, name, path]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        path:
+          type: string
+
+    ProductListItem:
+      type: object
+      required: [id, version, title, slug, status, brand, categories, variant_count, price_min,
+                 price_max, cover_url, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        title:
+          type: string
+        slug:
+          type: string
+        status:
+          $ref: "#/components/schemas/ProductStatus"
+        brand:
+          oneOf:
+            - $ref: "#/components/schemas/Ref"
+            - type: "null"
+        categories:
+          type: array
+          description: Main-tree categories only (`kind = category`), by path.
+          items:
+            $ref: "#/components/schemas/CategoryBrief"
+        variant_count:
+          type: integer
+        price_min:
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        price_max:
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        cover_url:
+          type: [string, "null"]
+          description: The first image's 200 px derivative, once made (BR-052).
+        updated_at:
+          type: string
+          format: date-time
+
+    ProductPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductListItem"
+        next_cursor:
+          type: [string, "null"]
 
     Money:
       type: integer
