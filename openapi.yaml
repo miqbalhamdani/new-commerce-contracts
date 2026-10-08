@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -276,6 +276,143 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /categories:
+    get:
+      operationId: listCategories
+      summary: Categories, flat, sorted by kind then path
+      description: |
+        Unpaginated; the client builds the tree from `parent_id`. `kind` limits to one tree,
+        `parent_id` starts below that node, `depth` limits how many levels below it (or below the
+        roots) come back. Archived categories are not listed. Requires `categories:read`.
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CategoryKind"
+        - name: parent_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: depth
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: The categories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    post:
+      operationId: createCategory
+      summary: Create a category
+      description: |
+        `path` is derived from the name and parent and is never accepted (BR-008, BR-032). A
+        parent must be a live category of the same kind in this tenant, else `422` on
+        `parent_id`. Same-named siblings get distinct labels (BR-035). Requires
+        `categories:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryCreate"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /categories/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getCategory
+      summary: One category, with the counts the move dialog needs
+      description: |
+        `descendant_count` is live categories below this one; `product_count` is live products
+        linked anywhere in the subtree (BR-033).
+      responses:
+        "200":
+          description: The category.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateCategory
+      summary: Rename or move a category
+      description: |
+        A rename or move rewrites every descendant's path in one statement and leaves product
+        links alone (BR-032, BR-033). Moving beneath itself or a descendant is `422` on
+        `parent_id` (BR-034); `parent_id: null` makes it a root. `kind` cannot change. No
+        `If-Match`: last save wins (BR-010). Requires `categories:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryUpdate"
+      responses:
+        "200":
+          description: The category with its new path.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    delete:
+      operationId: archiveCategory
+      summary: Archive a category
+      description: |
+        Archives (BR-012). A category with live children or live products in its subtree is
+        `409 category_in_use`, with `errors` naming `children` and `products` and their counts
+        (BR-036). Requires `categories:write`.
+      responses:
+        "204":
+          description: Archived.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
 components:
 
   securitySchemes:
@@ -511,6 +648,84 @@ components:
             $ref: "#/components/schemas/Brand"
         next_cursor:
           type: [string, "null"]
+
+    CategoryKind:
+      type: string
+      enum: [category, series, collection, activity, custom]
+      description: Independent trees; a product may sit in several (BR-031).
+
+    Category:
+      type: object
+      required: [id, kind, name, parent_id, path, archived_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/CategoryKind"
+        name:
+          type: string
+        parent_id:
+          type: [string, "null"]
+          format: uuid
+        path:
+          type: string
+          description: Derived by the database from names and parents; read-only (BR-032).
+          examples: ["apparel.outerwear.jackets"]
+        archived_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CategoryDetail:
+      allOf:
+        - $ref: "#/components/schemas/Category"
+        - type: object
+          required: [descendant_count, product_count]
+          properties:
+            descendant_count:
+              type: integer
+            product_count:
+              type: integer
+
+    CategoryList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+
+    CategoryCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        parent_id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/CategoryKind"
+
+    CategoryUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        parent_id:
+          type: [string, "null"]
+          format: uuid
 
     Money:
       type: integer
