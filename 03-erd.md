@@ -232,6 +232,14 @@ CREATE INDEX ON jobs (tenant_id, kind, created_at DESC);
 ### 3.3 Catalog (M2)
 
 ```sql
+-- URL slug for brands and products (BR-030, BR-042): lower-case a-z0-9 joined by
+-- hyphens, accents folded ("Café Ñ" -> "cafe-n"). One definition, so the API and
+-- the importers slugify identically.
+CREATE FUNCTION slugify(txt text) RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT trim(both '-' from
+           regexp_replace(lower(unaccent(coalesce(txt, ''))), '[^a-z0-9]+', '-', 'g'));
+$$;
+
 CREATE TABLE brands (
     id          uuid PRIMARY KEY,
     tenant_id   uuid NOT NULL REFERENCES tenants(id),
