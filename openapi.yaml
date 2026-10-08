@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -490,6 +490,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Product"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /products/bulk:
+    post:
+      operationId: bulkProducts
+      summary: Create or update up to 500 rows keyed on SKU
+      description: |
+        Each row is its own savepoint: one bad row fails alone, the rest apply, and the answer
+        is `200` with a result per row by request index (BR-043). A row whose SKU exists is
+        updated (`on_conflict: update`) or reported as `duplicate_sku` (`error`). A row whose
+        SKU is new, or that has none, creates a draft product with one variant and needs
+        `title`. `status` applies to the variant's product; `active` runs the publish check for
+        that row (BR-038). Requires `products:write` and `variants:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkRequest"
+      responses:
+        "200":
+          description: Per-row results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkResult"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1748,6 +1779,83 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Media"
+
+    BulkItem:
+      type: object
+      additionalProperties: false
+      properties:
+        sku:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          enum: [draft, active]
+        regular_price:
+          $ref: "#/components/schemas/Money"
+        sale_price:
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        sale_starts_at:
+          type: [string, "null"]
+          format: date-time
+        sale_ends_at:
+          type: [string, "null"]
+          format: date-time
+        weight_grams:
+          type: integer
+          minimum: 0
+        barcode:
+          type: [string, "null"]
+
+    BulkRequest:
+      type: object
+      required: [on_conflict, items]
+      additionalProperties: false
+      properties:
+        on_conflict:
+          type: string
+          enum: [update, error]
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/BulkItem"
+
+    BulkRowResult:
+      type: object
+      required: [index, sku, status, variant_id]
+      properties:
+        index:
+          type: integer
+        sku:
+          type: [string, "null"]
+        status:
+          type: string
+          enum: [created, updated, error]
+        variant_id:
+          type: [string, "null"]
+          format: uuid
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        detail:
+          type: string
+
+    BulkResult:
+      type: object
+      required: [created, updated, failed, results]
+      properties:
+        created:
+          type: integer
+        updated:
+          type: integer
+        failed:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkRowResult"
 
     Money:
       type: integer
