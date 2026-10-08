@@ -346,6 +346,7 @@ Deleting a category that has children or assigned products is rejected with
 
 ### BR-038 Publish check
 Moving a product from `draft` to `active` requires:
+0. at least one unarchived variant (a product with none cannot be sold);
 1. every unarchived variant has a SKU;
 2. every unarchived variant has a regular price greater than zero (BR-046);
 3. every unarchived variant has a weight greater than zero (shipping rates need it, BR-120);

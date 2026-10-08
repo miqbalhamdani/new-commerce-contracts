@@ -674,8 +674,10 @@ PATCH /v1/products/{id}        If-Match: 1
 ```json
 422 publish_check_failed
 { …, "errors": [
+    { "field": "variants",   "detail": "At least one live variant is required" },
     { "field": "sku",        "variant_id": "0192…", "detail": "Variant Black / XL has no SKU" },
     { "field": "price",      "variant_id": "0192…", "detail": "Price must be greater than zero" },
+    { "field": "weight",     "variant_id": "0192…", "detail": "Weight must be greater than zero" },
     { "field": "media",      "detail": "At least one image is required" },
     { "field": "categories", "detail": "At least one category of kind category is required" } ] }
 ```
