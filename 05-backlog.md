@@ -93,7 +93,7 @@ needs them.
 | P1-042 | `product_media` schema | BE | 025 | As `03-erd.md` §3.3 (BR-004, BR-050) | review | Iqbal Hamdani |
 | P1-043 | Media API: presign, confirm with `HEAD` check, attach, reorder, delete | BE | 042 | As §8; a key never uploaded → `422`; keys carry the content hash (BR-051, BR-053) | review | Iqbal Hamdani |
 | P1-044 | Worker: WebP derivatives 1600/800/200 via libvips | BE | 043, 060 | Derivatives ready in < 15 s p95; uploading never blocks the form (BR-052) | todo | |
-| P1-045 | R2 bucket, tenant prefixes, lifecycle rules, image domain Worker | OPS | 042 | Product images served public and edge-cached from the image domain (a dev domain until `P1-001`); `errors.csv` deleted after 30 days, exports after 7 (BR-053) | todo | |
+| P1-045 | R2 bucket, tenant prefixes, lifecycle rules, image domain Worker | OPS | 042 | Product images served public and edge-cached from the image domain (a dev domain until `P1-001`); `errors.csv` deleted after 30 days, exports after 7 (BR-053) | blocked | |
 | P1-049 | Publish check on `draft → active` | BE | 040, 043 | `422 publish_check_failed` lists every failure, including zero weight, with its variant id (BR-038) | review | Iqbal Hamdani |
 | P1-072 | `POST /v1/products/bulk` | BE | 029, 049 | As §7.5: up to 500 rows, per-row results by index, one bad row rolls back nothing (BR-043) | review | Iqbal Hamdani |
 | P1-073 | CSV import job: server-side parse, column mapping, `errors.csv` | BE | 060, 072 | 10,000 variants in < 5 min; `,` and `;` delimiters and BOM handled; every error cites its original line number (BR-044) | review | Iqbal Hamdani |
@@ -108,11 +108,16 @@ needs them.
 | P1-076 | Product list bulk actions (status, price) via bulk upsert | FE | 033, 072 | Per-row failures shown inline; successes stay applied (BR-043) | todo | |
 | P1-074 | Bulk import wizard: upload, 50-row preview, column mapping, progress, error download | FE | 073 | The browser parses only the preview (BR-044) | todo | |
 
+> **`P1-045` is blocked** on a Cloudflare account: the R2 bucket, its lifecycle rules and the image
+> domain Worker are provisioning only an account owner can do. Until then the API runs against MinIO
+> on the host (`make storage-init`), which speaks the same S3 API; switching is configuration
+> (`S3_*`, `IMAGE_BASE_URL`).
+
 ### Team and settings
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-225 | Resend: account, sending domain, DKIM/SPF/DMARC | OPS | — | A test email from `no-reply@{domain}` reaches an outside inbox and passes DKIM. Until the domain exists (`P1-001`), Resend's test sender (`onboarding@resend.dev`, which only delivers to the account owner's address) is enough to build against (BR-128) | todo | |
+| P1-225 | Resend: account, sending domain, DKIM/SPF/DMARC | OPS | — | A test email from `no-reply@{domain}` reaches an outside inbox and passes DKIM. Until the domain exists (`P1-001`), Resend's test sender (`onboarding@resend.dev`, which only delivers to the account owner's address) is enough to build against (BR-128) | blocked | |
 | P1-226 | Email sender in the worker + invitation template | BE | 225, 060 | Emails go through Resend from `"{shop name}" <no-reply@{domain}>` with Reply-To; sent after commit; a rolled-back change sends nothing (BR-128) | review | Iqbal Hamdani |
 | P1-064 | Users: invite, accept, resend, set role, disable | BE | 017, 018, 226 | As §2 and §4; the invitation email arrives (BR-026, BR-027) | review | Iqbal Hamdani |
 | P1-071 | Settings API: `GET`/`PATCH /v1/settings` | BE | 017 | As §4; only `owner` can `PATCH` (BR-023, BR-029) | review | Iqbal Hamdani |
@@ -122,6 +127,10 @@ needs them.
 | P1-078 | Audit log screen | FE | 077 | Shows actor, action, before/after per row (BR-018) | todo | |
 | P1-079 | Accept invitation screen | FE | 064 | The invite link opens a form for a password (the name was set at invite); submitting `POST /v1/auth/accept-invite` signs the user in. An expired or used token says so and tells them to ask for a new invitation (BR-026) | todo | |
 | P1-083 | Settings screen | FE | 071 | Name, time zone and order prefix, per `01-product-requirements.md` §4; only `owner` sees save; a changed prefix says it applies to new orders only (BR-025, BR-029, BR-077) | todo | |
+
+> **`P1-225` is blocked** on a Resend account and the sending domain (`P1-001`). Until then the
+> worker prints mail to stdout in development and refuses to start elsewhere without
+> `RESEND_API_KEY`; the sender itself (`P1-226`) is built and tested against Resend's API shape.
 
 ---
 
