@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -701,6 +701,50 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /products/{id}/variant-matrix:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    put:
+      operationId: putVariantMatrix
+      summary: Save the whole variant grid in one request
+      description: |
+        `If-Match` is the **product's** version (BR-010). Rows match live variants by
+        `option_values`; a row matching only an archived variant restores it; anything else is
+        created (BR-041). In a row, an omitted field is left as it is and `null` clears a
+        nullable one, as on `PATCH`. `archive_missing: true` archives the live variants not
+        sent; changing `option_names` needs it.
+
+        The whole request is `422` before any write when a row does not fit `option_names`,
+        two rows share `option_values`, or a Colour axis is not at position 0 (BR-040).
+        Otherwise one bad row fails alone and the answer is `200` with that row's error; the
+        product's version goes up once. Target: 100 cells in under 2 s (P1-041). Requires
+        `variants:write`.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VariantMatrix"
+      responses:
+        "200":
+          description: Per-row results and counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VariantMatrixResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
 
 components:
 
@@ -1398,6 +1442,100 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Problem"
             - type: "null"
+
+    VariantMatrixRow:
+      type: object
+      required: [option_values]
+      additionalProperties: false
+      properties:
+        option_values:
+          type: array
+          items:
+            type: string
+        sku:
+          type: [string, "null"]
+        barcode:
+          type: [string, "null"]
+        regular_price:
+          $ref: "#/components/schemas/Money"
+        sale_price:
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        sale_starts_at:
+          type: [string, "null"]
+          format: date-time
+        sale_ends_at:
+          type: [string, "null"]
+          format: date-time
+        weight_grams:
+          type: integer
+          minimum: 0
+
+    VariantMatrix:
+      type: object
+      required: [option_names, rows, archive_missing]
+      additionalProperties: false
+      properties:
+        option_names:
+          type: array
+          description: Ordered axes; Colour at position 0 when present (BR-040).
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/VariantMatrixRow"
+        archive_missing:
+          type: boolean
+
+    VariantMatrixRowResult:
+      type: object
+      required: [option_values, status, variant_id]
+      properties:
+        option_values:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [created, updated, restored, unchanged, error]
+        variant_id:
+          type: [string, "null"]
+          format: uuid
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        detail:
+          type: string
+
+    VariantMatrixResult:
+      type: object
+      required: [product_version, created, updated, restored, unchanged, archived, failed,
+                 archived_variant_ids, results]
+      properties:
+        product_version:
+          type: integer
+        created:
+          type: integer
+        updated:
+          type: integer
+        restored:
+          type: integer
+        unchanged:
+          type: integer
+        archived:
+          type: integer
+        failed:
+          type: integer
+        archived_variant_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/VariantMatrixRowResult"
 
     Money:
       type: integer

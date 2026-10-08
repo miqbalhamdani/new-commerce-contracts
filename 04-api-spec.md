@@ -778,6 +778,8 @@ PUT /v1/products/{id}/variant-matrix      If-Match: 3      ← the PRODUCT's ver
 
 - **Matching.** Rows match the product's live variants by `option_values`. A row matching an
   archived variant restores it, so a colourway added back keeps its SKU.
+- **Fields in a row.** An omitted field is left as it is; `null` clears a nullable one, as on
+  `PATCH`. A grid without sale columns therefore never ends a sale by accident.
 - **One bad row fails alone.** The rest save and every row gets a result; the response is `200`
   even when some rows fail (BR-041).
 - **`archive_missing`.** `true` archives live variants not sent; `false` patches part of the grid
