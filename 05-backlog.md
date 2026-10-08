@@ -77,7 +77,7 @@ needs them.
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
 | P1-020 | `brands` schema + composite FK to tenant | BE | 010 | As `03-erd.md` §3.3; unique slug per tenant including archived (BR-004, BR-030) | review | Iqbal Hamdani |
-| P1-021 | Brand CRUD API | BE | 020 | As §6.1; no `version`, no `If-Match` (BR-010, BR-012, BR-030) | todo | |
+| P1-021 | Brand CRUD API | BE | 020 | As §6.1; no `version`, no `If-Match` (BR-010, BR-012, BR-030) | review | Iqbal Hamdani |
 | P1-022 | `categories` schema, ltree, slugify, path trigger | BE | 010 | As `03-erd.md` §3.7; a move rewrites every descendant path in one statement (BR-032) | todo | |
 | P1-023 | Category cycle guard + same-name sibling handling | BE | 022 | Moving a node beneath its own descendant errors; siblings named alike get `_1` labels (BR-034, BR-035) | todo | |
 | P1-024 | Category API, `kind` filter, depth-limited fetch | BE | 022 | As §6.2; sending `path` → `422`; deleting a category in use → `409 category_in_use` with counts (BR-008, BR-036) | todo | |
