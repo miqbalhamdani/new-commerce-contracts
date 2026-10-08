@@ -391,6 +391,8 @@ CREATE TABLE product_media (
     derivatives jsonb NOT NULL DEFAULT '{}'::jsonb,   -- {"1600":"<key>","800":"<key>","200":"<key>"}
     source_url  text,              -- marketplace URL it was copied from (BR-106); never served
     created_at  timestamptz NOT NULL DEFAULT now(),
+    -- Confirming the same upload twice is the same image, not two (P1-043).
+    CONSTRAINT product_media_product_key_uq UNIQUE (product_id, r2_key),
     -- BR-004. SET NULL (variant_id) clears only the variant, never tenant_id.
     CONSTRAINT product_media_same_tenant_as_product
         FOREIGN KEY (product_id, tenant_id) REFERENCES products (id, tenant_id) ON DELETE CASCADE,
