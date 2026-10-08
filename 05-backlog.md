@@ -133,9 +133,15 @@ needs them.
 | P1-079 | Accept invitation screen | FE | 064 | The invite link opens a form for a password (the name was set at invite); submitting `POST /v1/auth/accept-invite` signs the user in. An expired or used token says so and tells them to ask for a new invitation (BR-026) | review | Iqbal Hamdani |
 | P1-083 | Settings screen | FE | 071 | Name, time zone and order prefix, per `01-product-requirements.md` §4; only `owner` sees save; a changed prefix says it applies to new orders only (BR-025, BR-029, BR-077) | review | Iqbal Hamdani |
 
-> **`P1-225` is blocked** on a Resend account and the sending domain (`P1-001`). Until then the
-> worker prints mail to stdout in development and refuses to start elsewhere without
-> `RESEND_API_KEY`; the sender itself (`P1-226`) is built and tested against Resend's API shape.
+> **`P1-225` is blocked** on a Resend account and the sending domain (`P1-001`). The local half is
+> done: in development the worker sends to Mailpit when `SMTP_ADDR` is set (inbox at
+> http://localhost:8025), else prints mail to stdout; elsewhere it refuses to start without
+> `RESEND_API_KEY`. The Resend sender (`P1-226`) is built and tested against Resend's API shape.
+> Cutover, for the account owner:
+> 1. Create the Resend account and add the sending domain.
+> 2. Add its DKIM, SPF and DMARC records to DNS; wait for Resend to verify.
+> 3. Set `RESEND_API_KEY` and `EMAIL_DOMAIN` on the worker. No code changes.
+> 4. Send an invitation to an outside inbox and check it passes DKIM.
 
 ---
 
