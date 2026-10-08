@@ -92,7 +92,7 @@ needs them.
 | P1-041 | Partial-failure semantics in the matrix | BE | 040 | One duplicate SKU fails only its row; the rest save; 100 cells save in < 2 s (BR-041) | review | Iqbal Hamdani |
 | P1-042 | `product_media` schema | BE | 025 | As `03-erd.md` §3.3 (BR-004, BR-050) | review | Iqbal Hamdani |
 | P1-043 | Media API: presign, confirm with `HEAD` check, attach, reorder, delete | BE | 042 | As §8; a key never uploaded → `422`; keys carry the content hash (BR-051, BR-053) | review | Iqbal Hamdani |
-| P1-044 | Worker: WebP derivatives 1600/800/200 via libvips | BE | 043, 060 | Derivatives ready in < 15 s p95; uploading never blocks the form (BR-052) | todo | |
+| P1-044 | Worker: WebP derivatives 1600/800/200 via libvips | BE | 043, 060 | Derivatives ready in < 15 s p95; uploading never blocks the form (BR-052) | review | Iqbal Hamdani |
 | P1-045 | R2 bucket, tenant prefixes, lifecycle rules, image domain Worker | OPS | 042 | Product images served public and edge-cached from the image domain (a dev domain until `P1-001`); `errors.csv` deleted after 30 days, exports after 7 (BR-053) | blocked | |
 | P1-049 | Publish check on `draft → active` | BE | 040, 043 | `422 publish_check_failed` lists every failure, including zero weight, with its variant id (BR-038) | review | Iqbal Hamdani |
 | P1-072 | `POST /v1/products/bulk` | BE | 029, 049 | As §7.5: up to 500 rows, per-row results by index, one bad row rolls back nothing (BR-043) | review | Iqbal Hamdani |
