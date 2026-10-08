@@ -357,7 +357,7 @@ DELETE /v1/api-keys/{id}
 GET /v1/audit-log?subject_type=order&subject_id=0192…
 200 OK
 { "data": [
-    { "id": "8812", "action": "order.transition",
+    { "action": "order.transition",
       "actor": { "id": "0192…", "name": "Budi" },
       "subject_type": "order", "subject_id": "0192…",
       "before": { "status": "paid" }, "after": { "status": "processing" },
@@ -674,8 +674,10 @@ PATCH /v1/products/{id}        If-Match: 1
 ```json
 422 publish_check_failed
 { …, "errors": [
+    { "field": "variants",   "detail": "At least one live variant is required" },
     { "field": "sku",        "variant_id": "0192…", "detail": "Variant Black / XL has no SKU" },
     { "field": "price",      "variant_id": "0192…", "detail": "Price must be greater than zero" },
+    { "field": "weight",     "variant_id": "0192…", "detail": "Weight must be greater than zero" },
     { "field": "media",      "detail": "At least one image is required" },
     { "field": "categories", "detail": "At least one category of kind category is required" } ] }
 ```
@@ -778,6 +780,8 @@ PUT /v1/products/{id}/variant-matrix      If-Match: 3      ← the PRODUCT's ver
 
 - **Matching.** Rows match the product's live variants by `option_values`. A row matching an
   archived variant restores it, so a colourway added back keeps its SKU.
+- **Fields in a row.** An omitted field is left as it is; `null` clears a nullable one, as on
+  `PATCH`. A grid without sale columns therefore never ends a sale by accident.
 - **One bad row fails alone.** The rest save and every row gets a result; the response is `200`
   even when some rows fail (BR-041).
 - **`archive_missing`.** `true` archives live variants not sent; `false` patches part of the grid
@@ -863,7 +867,7 @@ sequenceDiagram
 
 ```json
 POST /v1/products/import
-{ "r2_key": "0192-tenant/jobs/0193…/upload.csv",
+{ "r2_key": "jobs/0192-tenant/0193…/upload.csv",
   "column_mapping": { "Nama Produk": "title", "SKU": "sku", "Harga": "regular_price",
                       "Harga Diskon": "sale_price",
                       "Berat": "weight_grams", "Warna": "option:Colour", "Ukuran": "option:Size" },
@@ -877,6 +881,12 @@ POST /v1/products/import
 not match our field names. `option:<Name>` columns build the variant matrix; rows with the same
 `title` become one product. Delimiter (`,` or `;`), encoding and BOM are detected server-side.
 10,000 variants finish in under 5 minutes.
+
+Prices in the file are whole rupiah (`199000` or `199.000` is Rp 199.000); the API stores minor
+units. A row whose SKU exists updates that variant (`on_conflict: update`) or fails as
+`duplicate_sku` (`error`); any other row joins the product its `title` names in this file,
+created as a draft. A redelivered job resumes after the last batch it committed, so a row is
+never applied twice (BR-060).
 
 ---
 

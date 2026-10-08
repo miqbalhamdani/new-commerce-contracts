@@ -76,52 +76,72 @@ needs them.
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-020 | `brands` schema + composite FK to tenant | BE | 010 | As `03-erd.md` §3.3; unique slug per tenant including archived (BR-004, BR-030) | todo | |
-| P1-021 | Brand CRUD API | BE | 020 | As §6.1; no `version`, no `If-Match` (BR-010, BR-012, BR-030) | todo | |
-| P1-022 | `categories` schema, ltree, slugify, path trigger | BE | 010 | As `03-erd.md` §3.7; a move rewrites every descendant path in one statement (BR-032) | todo | |
-| P1-023 | Category cycle guard + same-name sibling handling | BE | 022 | Moving a node beneath its own descendant errors; siblings named alike get `_1` labels (BR-034, BR-035) | todo | |
-| P1-024 | Category API, `kind` filter, depth-limited fetch | BE | 022 | As §6.2; sending `path` → `422`; deleting a category in use → `409 category_in_use` with counts (BR-008, BR-036) | todo | |
-| P1-025 | `products` schema incl. `slug`, `attributes`, `option_names` | BE | 020 | As `03-erd.md` §3.3; no quantity column anywhere (BR-017, BR-042) | todo | |
-| P1-026 | `variants` schema, partial unique SKU index, composite FK | BE | 025 | Many null SKUs allowed; non-null unique per tenant; one live variant per option combination; `variant_price()` returns the sale price only inside its schedule, and a sale price not below the regular price is refused (BR-039, BR-040, BR-046) | todo | |
-| P1-027 | `product_categories` join, multi-`kind` membership | BE | 022, 025 | One product in 3 trees of different kinds at once; a cross-tenant link is refused (BR-004, BR-031) | todo | |
-| P1-028 | Product CRUD, `If-Match`, slug, server-managed fields refused | BE | 025, 027 | As §7.1; changing the title never changes the slug (BR-008, BR-009, BR-010, BR-012, BR-042) | todo | |
-| P1-029 | Variant CRUD | BE | 026 | As §7.2; a duplicate SKU → `409 duplicate_sku` naming the holder; `regular_price`, `sale_price` and schedule writable, `price`/`on_sale` read-only (BR-039, BR-046) | todo | |
-| P1-030 | Product list: trigram search, filters, cursor pagination | BE | 028 | p95 < 600 ms with 10k products, categories included; each row lists its main-tree (`kind = category`) categories; `category_id` includes descendants; exact SKU matches | todo | |
-| P1-060 | Job runner (Redis Streams) + `jobs` table + `GET /v1/jobs/{id}` | BE | 007 | As §9 and `03-erd.md` §3.2; a job killed mid-run is redelivered and finishes once (BR-060, BR-063) | todo | |
-| P1-040 | `PUT /variant-matrix`: server-side diff, one transaction | BE | 029 | As §7.3: created, updated, restored and archived counted correctly (BR-040, BR-041) | todo | |
-| P1-041 | Partial-failure semantics in the matrix | BE | 040 | One duplicate SKU fails only its row; the rest save; 100 cells save in < 2 s (BR-041) | todo | |
-| P1-042 | `product_media` schema | BE | 025 | As `03-erd.md` §3.3 (BR-004, BR-050) | todo | |
-| P1-043 | Media API: presign, confirm with `HEAD` check, attach, reorder, delete | BE | 042 | As §8; a key never uploaded → `422`; keys carry the content hash (BR-051, BR-053) | todo | |
-| P1-044 | Worker: WebP derivatives 1600/800/200 via libvips | BE | 043, 060 | Derivatives ready in < 15 s p95; uploading never blocks the form (BR-052) | todo | |
-| P1-045 | R2 bucket, tenant prefixes, lifecycle rules, image domain Worker | OPS | 042 | Product images served public and edge-cached from the image domain (a dev domain until `P1-001`); `errors.csv` deleted after 30 days, exports after 7 (BR-053) | todo | |
-| P1-049 | Publish check on `draft → active` | BE | 040, 043 | `422 publish_check_failed` lists every failure, including zero weight, with its variant id (BR-038) | todo | |
-| P1-072 | `POST /v1/products/bulk` | BE | 029, 049 | As §7.5: up to 500 rows, per-row results by index, one bad row rolls back nothing (BR-043) | todo | |
-| P1-073 | CSV import job: server-side parse, column mapping, `errors.csv` | BE | 060, 072 | 10,000 variants in < 5 min; `,` and `;` delimiters and BOM handled; every error cites its original line number (BR-044) | todo | |
-| P1-031 | Brand manager screen | FE | 021 | `01-product-requirements.md` §4 | todo | |
-| P1-032 | Category manager: tree, drag-to-move, confirmation dialog | FE | 024 | The move dialog states descendant and product counts (BR-033) | todo | |
-| P1-033 | Product list screen: search, filters, saved state | FE | 030 | A Category column shows each product's main-tree categories; filters survive navigation and reload | todo | |
-| P1-034 | Product editor: fields, slug, brand picker, category multi-select | FE | 028 | Unsaved-changes prompt; editing a slug warns that old links break (BR-042) | todo | |
-| P1-046 | **Variant matrix editor**: grid, paste from Excel, fill-down | FE | 040 | A 2×5 grid renders 10 cells and saves in one request; a failed row is highlighted with its error (BR-041) | todo | |
-| P1-047 | Bulk price adjustment in the matrix (± amount / %) | FE | 046 | Applies to regular or sale price, chosen by the user; a preview shows before it applies (BR-046) | todo | |
-| P1-048 | Media library: drag-drop, direct R2 upload, reorder, attach to variant | FE | 043 | Image bytes never pass through the API (BR-051) | todo | |
-| P1-075 | Publish flow in the editor | FE | 049, 046 | Every publish-check failure links to its field or matrix cell (BR-038) | todo | |
-| P1-076 | Product list bulk actions (status, price) via bulk upsert | FE | 033, 072 | Per-row failures shown inline; successes stay applied (BR-043) | todo | |
-| P1-074 | Bulk import wizard: upload, 50-row preview, column mapping, progress, error download | FE | 073 | The browser parses only the preview (BR-044) | todo | |
+| P1-020 | `brands` schema + composite FK to tenant | BE | 010 | As `03-erd.md` §3.3; unique slug per tenant including archived (BR-004, BR-030) | review | Iqbal Hamdani |
+| P1-021 | Brand CRUD API | BE | 020 | As §6.1; no `version`, no `If-Match` (BR-010, BR-012, BR-030) | review | Iqbal Hamdani |
+| P1-022 | `categories` schema, ltree, slugify, path trigger | BE | 010 | As `03-erd.md` §3.7; a move rewrites every descendant path in one statement (BR-032) | review | Iqbal Hamdani |
+| P1-023 | Category cycle guard + same-name sibling handling | BE | 022 | Moving a node beneath its own descendant errors; siblings named alike get `_1` labels (BR-034, BR-035) | review | Iqbal Hamdani |
+| P1-024 | Category API, `kind` filter, depth-limited fetch | BE | 022 | As §6.2; sending `path` → `422`; deleting a category in use → `409 category_in_use` with counts (BR-008, BR-036) | review | Iqbal Hamdani |
+| P1-025 | `products` schema incl. `slug`, `attributes`, `option_names` | BE | 020 | As `03-erd.md` §3.3; no quantity column anywhere (BR-017, BR-042) | review | Iqbal Hamdani |
+| P1-026 | `variants` schema, partial unique SKU index, composite FK | BE | 025 | Many null SKUs allowed; non-null unique per tenant; one live variant per option combination; `variant_price()` returns the sale price only inside its schedule, and a sale price not below the regular price is refused (BR-039, BR-040, BR-046) | review | Iqbal Hamdani |
+| P1-027 | `product_categories` join, multi-`kind` membership | BE | 022, 025 | One product in 3 trees of different kinds at once; a cross-tenant link is refused (BR-004, BR-031) | review | Iqbal Hamdani |
+| P1-028 | Product CRUD, `If-Match`, slug, server-managed fields refused | BE | 025, 027 | As §7.1; changing the title never changes the slug (BR-008, BR-009, BR-010, BR-012, BR-042) | review | Iqbal Hamdani |
+| P1-029 | Variant CRUD | BE | 026 | As §7.2; a duplicate SKU → `409 duplicate_sku` naming the holder; `regular_price`, `sale_price` and schedule writable, `price`/`on_sale` read-only (BR-039, BR-046) | review | Iqbal Hamdani |
+| P1-030 | Product list: trigram search, filters, cursor pagination | BE | 028 | p95 < 600 ms with 10k products, categories included; each row lists its main-tree (`kind = category`) categories; `category_id` includes descendants; exact SKU matches | review | Iqbal Hamdani |
+| P1-060 | Job runner (Redis Streams) + `jobs` table + `GET /v1/jobs/{id}` | BE | 007 | As §9 and `03-erd.md` §3.2; a job killed mid-run is redelivered and finishes once (BR-060, BR-063) | review | Iqbal Hamdani |
+| P1-040 | `PUT /variant-matrix`: server-side diff, one transaction | BE | 029 | As §7.3: created, updated, restored and archived counted correctly (BR-040, BR-041) | review | Iqbal Hamdani |
+| P1-041 | Partial-failure semantics in the matrix | BE | 040 | One duplicate SKU fails only its row; the rest save; 100 cells save in < 2 s (BR-041) | review | Iqbal Hamdani |
+| P1-042 | `product_media` schema | BE | 025 | As `03-erd.md` §3.3 (BR-004, BR-050) | review | Iqbal Hamdani |
+| P1-043 | Media API: presign, confirm with `HEAD` check, attach, reorder, delete | BE | 042 | As §8; a key never uploaded → `422`; keys carry the content hash (BR-051, BR-053) | review | Iqbal Hamdani |
+| P1-044 | Worker: WebP derivatives 1600/800/200 via libvips | BE | 043, 060 | Derivatives ready in < 15 s p95; uploading never blocks the form (BR-052) | review | Iqbal Hamdani |
+| P1-045 | R2 bucket, tenant prefixes, lifecycle rules, image domain Worker | OPS | 042 | Product images served public and edge-cached from the image domain (a dev domain until `P1-001`); `errors.csv` deleted after 30 days, exports after 7 (BR-053) | blocked | |
+| P1-049 | Publish check on `draft → active` | BE | 040, 043 | `422 publish_check_failed` lists every failure, including zero weight, with its variant id (BR-038) | review | Iqbal Hamdani |
+| P1-072 | `POST /v1/products/bulk` | BE | 029, 049 | As §7.5: up to 500 rows, per-row results by index, one bad row rolls back nothing (BR-043) | review | Iqbal Hamdani |
+| P1-073 | CSV import job: server-side parse, column mapping, `errors.csv` | BE | 060, 072 | 10,000 variants in < 5 min; `,` and `;` delimiters and BOM handled; every error cites its original line number (BR-044) | review | Iqbal Hamdani |
+| P1-031 | Brand manager screen | FE | 021 | `01-product-requirements.md` §4 | review | Iqbal Hamdani |
+| P1-032 | Category manager: tree, drag-to-move, confirmation dialog | FE | 024 | The move dialog states descendant and product counts (BR-033) | review | Iqbal Hamdani |
+| P1-033 | Product list screen: search, filters, saved state | FE | 030 | A Category column shows each product's main-tree categories; filters survive navigation and reload | review | Iqbal Hamdani |
+| P1-034 | Product editor: fields, slug, brand picker, category multi-select | FE | 028 | Unsaved-changes prompt; editing a slug warns that old links break (BR-042) | review | Iqbal Hamdani |
+| P1-046 | **Variant matrix editor**: grid, paste from Excel, fill-down | FE | 040 | A 2×5 grid renders 10 cells and saves in one request; a failed row is highlighted with its error (BR-041) | review | Iqbal Hamdani |
+| P1-047 | Bulk price adjustment in the matrix (± amount / %) | FE | 046 | Applies to regular or sale price, chosen by the user; a preview shows before it applies (BR-046) | review | Iqbal Hamdani |
+| P1-048 | Media library: drag-drop, direct R2 upload, reorder, attach to variant | FE | 043 | Image bytes never pass through the API (BR-051) | review | Iqbal Hamdani |
+| P1-075 | Publish flow in the editor | FE | 049, 046 | Every publish-check failure links to its field or matrix cell (BR-038) | review | Iqbal Hamdani |
+| P1-076 | Product list bulk actions (status, price) via bulk upsert | FE | 033, 072 | Per-row failures shown inline; successes stay applied (BR-043) | review | Iqbal Hamdani |
+| P1-074 | Bulk import wizard: upload, 50-row preview, column mapping, progress, error download | FE | 073 | The browser parses only the preview (BR-044) | review | Iqbal Hamdani |
+
+> **`P1-045` is blocked** on a Cloudflare account. The local half is done: `make storage-init`
+> gives MinIO the same layout, public read on `*/products/*`, and the two expiry rules. Cutover,
+> for the account owner:
+> 1. Create the R2 bucket and an API token with object read/write on it.
+> 2. Add lifecycle rules: prefix `jobs/` delete after 30 days, prefix `exports/` after 7 (BR-053).
+> 3. Serve `*/products/*` on the image domain through a Worker or R2 custom domain, edge-cached.
+> 4. Allow CORS `PUT` from the admin origin.
+> 5. Set `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_USE_SSL=true` and
+>    `IMAGE_BASE_URL`. No code changes.
 
 ### Team and settings
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-225 | Resend: account, sending domain, DKIM/SPF/DMARC | OPS | — | A test email from `no-reply@{domain}` reaches an outside inbox and passes DKIM. Until the domain exists (`P1-001`), Resend's test sender (`onboarding@resend.dev`, which only delivers to the account owner's address) is enough to build against (BR-128) | todo | |
-| P1-226 | Email sender in the worker + invitation template | BE | 225, 060 | Emails go through Resend from `"{shop name}" <no-reply@{domain}>` with Reply-To; sent after commit; a rolled-back change sends nothing (BR-128) | todo | |
-| P1-064 | Users: invite, accept, resend, set role, disable | BE | 017, 018, 226 | As §2 and §4; the invitation email arrives (BR-026, BR-027) | todo | |
-| P1-071 | Settings API: `GET`/`PATCH /v1/settings` | BE | 017 | As §4; only `owner` can `PATCH` (BR-023, BR-029) | todo | |
-| P1-077 | Audit log API: `GET /v1/audit-log` | BE | 018 | As §4; newest first, filterable by subject and actor (BR-018) | todo | |
-| P1-066 | Team & roles screen | FE | 064 | `ops` sees no user-management navigation at all (BR-025) | todo | |
-| P1-068 | Onboarding wizard: settings, first brand, first category tree | FE | 021, 024, 071 | `01-product-requirements.md` §4; defaults pre-filled (BR-029) | todo | |
-| P1-078 | Audit log screen | FE | 077 | Shows actor, action, before/after per row (BR-018) | todo | |
-| P1-079 | Accept invitation screen | FE | 064 | The invite link opens a form for name and password; submitting `POST /v1/auth/accept-invite` signs the user in. An expired or used token says so and tells them to ask for a new invitation (BR-026) | todo | |
-| P1-083 | Settings screen | FE | 071 | Name, time zone and order prefix, per `01-product-requirements.md` §4; only `owner` sees save; a changed prefix says it applies to new orders only (BR-025, BR-029, BR-077) | todo | |
+| P1-225 | Resend: account, sending domain, DKIM/SPF/DMARC | OPS | — | A test email from `no-reply@{domain}` reaches an outside inbox and passes DKIM. Until the domain exists (`P1-001`), Resend's test sender (`onboarding@resend.dev`, which only delivers to the account owner's address) is enough to build against (BR-128) | blocked | |
+| P1-226 | Email sender in the worker + invitation template | BE | 225, 060 | Emails go through Resend from `"{shop name}" <no-reply@{domain}>` with Reply-To; sent after commit; a rolled-back change sends nothing (BR-128) | review | Iqbal Hamdani |
+| P1-064 | Users: invite, accept, resend, set role, disable | BE | 017, 018, 226 | As §2 and §4; the invitation email arrives (BR-026, BR-027) | review | Iqbal Hamdani |
+| P1-071 | Settings API: `GET`/`PATCH /v1/settings` | BE | 017 | As §4; only `owner` can `PATCH` (BR-023, BR-029) | review | Iqbal Hamdani |
+| P1-077 | Audit log API: `GET /v1/audit-log` | BE | 018 | As §4; newest first, filterable by subject and actor (BR-018) | review | Iqbal Hamdani |
+| P1-066 | Team & roles screen | FE | 064 | `ops` sees no user-management navigation at all (BR-025) | review | Iqbal Hamdani |
+| P1-068 | Onboarding wizard: settings, first brand, first category tree | FE | 021, 024, 071 | `01-product-requirements.md` §4; defaults pre-filled (BR-029) | review | Iqbal Hamdani |
+| P1-078 | Audit log screen | FE | 077 | Shows actor, action, before/after per row (BR-018) | review | Iqbal Hamdani |
+| P1-079 | Accept invitation screen | FE | 064 | The invite link opens a form for a password (the name was set at invite); submitting `POST /v1/auth/accept-invite` signs the user in. An expired or used token says so and tells them to ask for a new invitation (BR-026) | review | Iqbal Hamdani |
+| P1-083 | Settings screen | FE | 071 | Name, time zone and order prefix, per `01-product-requirements.md` §4; only `owner` sees save; a changed prefix says it applies to new orders only (BR-025, BR-029, BR-077) | review | Iqbal Hamdani |
+
+> **`P1-225` is blocked** on a Resend account and the sending domain (`P1-001`). The local half is
+> done: in development the worker sends to Mailpit when `SMTP_ADDR` is set (inbox at
+> http://localhost:8025), else prints mail to stdout; elsewhere it refuses to start without
+> `RESEND_API_KEY`. The Resend sender (`P1-226`) is built and tested against Resend's API shape.
+> Cutover, for the account owner:
+> 1. Create the Resend account and add the sending domain.
+> 2. Add its DKIM, SPF and DMARC records to DNS; wait for Resend to verify.
+> 3. Set `RESEND_API_KEY` and `EMAIL_DOMAIN` on the worker. No code changes.
+> 4. Send an invitation to an outside inbox and check it passes DKIM.
 
 ---
 
