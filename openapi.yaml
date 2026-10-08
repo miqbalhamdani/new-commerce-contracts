@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -155,6 +155,127 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /brands:
+    get:
+      operationId: listBrands
+      summary: Brands, sorted by name
+      description: |
+        Cursor-paginated and sorted by `name`. `q` matches the name. Archived brands are listed
+        only with `archived=true` (BR-012). Requires `brands:read`.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of brands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    post:
+      operationId: createBrand
+      summary: Create a brand
+      description: |
+        The slug is derived from the name and is never accepted from a client (BR-008). A name
+        whose slug matches another brand's in this tenant, archived ones included, is `422` on
+        `name` (BR-030). Requires `brands:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandWrite"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brand"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /brands/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getBrand
+      summary: One brand
+      responses:
+        "200":
+          description: The brand.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brand"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateBrand
+      summary: Rename a brand
+      description: |
+        The slug is re-derived from the new name. No `If-Match`: brands have no version and the
+        last save wins (BR-010). Requires `brands:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandWrite"
+      responses:
+        "200":
+          description: The renamed brand.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brand"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    delete:
+      operationId: archiveBrand
+      summary: Archive a brand
+      description: Sets `archived_at`; the row is kept (BR-012). Requires `brands:write`.
+      responses:
+        "204":
+          description: Archived.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
 
   securitySchemes:
@@ -197,6 +318,14 @@ components:
         (BR-091).
 
   parameters:
+
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
 
     Limit:
       name: limit
@@ -339,6 +468,49 @@ components:
           items:
             type: string
             examples: ["products:read"]
+
+    Brand:
+      type: object
+      required: [id, name, slug, archived_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+          description: Derived from `name`; read-only (BR-030).
+          examples: ["erigo"]
+        archived_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    BrandWrite:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+
+    BrandPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Brand"
+        next_cursor:
+          type: [string, "null"]
 
     Money:
       type: integer
