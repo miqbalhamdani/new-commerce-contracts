@@ -329,9 +329,10 @@ CREATE TABLE variants (
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now(),
     -- BR-046: a sale price is always a discount, and a schedule runs forward.
-    CHECK (sale_price_amount IS NULL
+    CONSTRAINT variants_sale_below_regular CHECK (sale_price_amount IS NULL
            OR (sale_price_amount >= 0 AND sale_price_amount < regular_price_amount)),
-    CHECK (sale_starts_at IS NULL OR sale_ends_at IS NULL OR sale_ends_at > sale_starts_at)
+    CONSTRAINT variants_sale_window
+           CHECK (sale_starts_at IS NULL OR sale_ends_at IS NULL OR sale_ends_at > sale_starts_at)
 );
 
 -- BR-046. The ONE place that decides what a variant costs right now. Checkout,
