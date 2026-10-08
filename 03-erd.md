@@ -257,7 +257,7 @@ ALTER TABLE brands ADD CONSTRAINT brands_id_tenant_uq UNIQUE (id, tenant_id);
 CREATE TABLE categories (
     id          uuid PRIMARY KEY,
     tenant_id   uuid NOT NULL REFERENCES tenants(id),
-    parent_id   uuid REFERENCES categories(id),
+    parent_id   uuid,                   -- same tenant and same kind: FK below, trigger in §3.7
     -- BR-031. Independent trees; one product may sit in several at once.
     kind        text NOT NULL DEFAULT 'category'
                 CHECK (kind IN ('category','series','collection','activity','custom')),
@@ -271,6 +271,8 @@ CREATE TABLE categories (
 CREATE INDEX ON categories USING gist (path);
 CREATE INDEX ON categories (tenant_id, kind, parent_id);
 ALTER TABLE categories ADD CONSTRAINT categories_id_tenant_uq UNIQUE (id, tenant_id);
+ALTER TABLE categories ADD CONSTRAINT categories_same_tenant_as_parent       -- BR-004
+    FOREIGN KEY (parent_id, tenant_id) REFERENCES categories (id, tenant_id);
 
 CREATE TABLE products (
     id           uuid PRIMARY KEY,
@@ -694,7 +696,7 @@ CREATE OR REPLACE FUNCTION slugify_label(txt text) RETURNS text AS $$
   SELECT regexp_replace(
            regexp_replace(lower(unaccent(coalesce(txt,''))), '[^a-z0-9]+', '_', 'g'),
            '^_+|_+$', '', 'g');
-$$ LANGUAGE sql IMMUTABLE;
+$$ LANGUAGE sql STABLE;   -- unaccent reads a dictionary, so not IMMUTABLE
 
 -- BEFORE: compute this row's own path.
 CREATE OR REPLACE FUNCTION categories_set_path() RETURNS trigger AS $$
@@ -706,7 +708,8 @@ BEGIN
   IF base = '' THEN base := 'cat'; END IF;
 
   IF NEW.parent_id IS NOT NULL THEN
-    SELECT path INTO STRICT parent_path FROM categories WHERE id = NEW.parent_id;
+    SELECT path INTO STRICT parent_path FROM categories
+     WHERE id = NEW.parent_id AND kind = NEW.kind;   -- a parent is in the same tree (BR-031)
     -- A category cannot be moved beneath its own descendant.
     IF TG_OP = 'UPDATE' AND parent_path <@ OLD.path THEN
       RAISE EXCEPTION 'cannot move category % beneath its own descendant', NEW.id;
@@ -745,20 +748,26 @@ BEGIN
     UPDATE categories
        SET path = NEW.path || subpath(path, nlevel(OLD.path))
      WHERE tenant_id = NEW.tenant_id
+       AND kind = NEW.kind              -- other kinds can share label paths
        AND path <@ OLD.path
        AND id <> NEW.id;
   END IF;
   RETURN NULL;
 END $$ LANGUAGE plpgsql;
 
+-- OF name, parent_id, not OF path: a column list matches the UPDATE's SET
+-- list, and a move sets parent_id while the BEFORE trigger changes path.
 CREATE TRIGGER categories_move_aiu
-  AFTER UPDATE OF path ON categories
+  AFTER UPDATE OF name, parent_id ON categories
   FOR EACH ROW EXECUTE FUNCTION categories_move_subtree();
 ```
 
 Renaming a mid-tree category rewrites every descendant path in one statement.
 `product_categories` references `category_id`, never `path`, so no product link is affected by a
 move (BR-033). That is the whole reason `parent_id` is the truth and `path` is only an index.
+
+Two moves at once could each pass the cycle check against the other's old tree, so the API takes
+a per-tenant `pg_advisory_xact_lock` before any category write (BR-034).
 
 ---
 
