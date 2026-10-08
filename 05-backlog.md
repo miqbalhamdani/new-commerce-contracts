@@ -99,7 +99,7 @@ needs them.
 | P1-073 | CSV import job: server-side parse, column mapping, `errors.csv` | BE | 060, 072 | 10,000 variants in < 5 min; `,` and `;` delimiters and BOM handled; every error cites its original line number (BR-044) | review | Iqbal Hamdani |
 | P1-031 | Brand manager screen | FE | 021 | `01-product-requirements.md` §4 | review | Iqbal Hamdani |
 | P1-032 | Category manager: tree, drag-to-move, confirmation dialog | FE | 024 | The move dialog states descendant and product counts (BR-033) | review | Iqbal Hamdani |
-| P1-033 | Product list screen: search, filters, saved state | FE | 030 | A Category column shows each product's main-tree categories; filters survive navigation and reload | todo | |
+| P1-033 | Product list screen: search, filters, saved state | FE | 030 | A Category column shows each product's main-tree categories; filters survive navigation and reload | review | Iqbal Hamdani |
 | P1-034 | Product editor: fields, slug, brand picker, category multi-select | FE | 028 | Unsaved-changes prompt; editing a slug warns that old links break (BR-042) | todo | |
 | P1-046 | **Variant matrix editor**: grid, paste from Excel, fill-down | FE | 040 | A 2×5 grid renders 10 cells and saves in one request; a failed row is highlighted with its error (BR-041) | todo | |
 | P1-047 | Bulk price adjustment in the matrix (± amount / %) | FE | 046 | Applies to regular or sale price, chosen by the user; a preview shows before it applies (BR-046) | todo | |
