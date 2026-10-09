@@ -270,6 +270,8 @@ CREATE TABLE categories (
     archived_at timestamptz,
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now(),
+    -- BR-032. This row's own path segment when the client set one; NULL derives it from name.
+    label       text CHECK (label ~ '^[a-z0-9]+(_[a-z0-9]+)*$'),
     UNIQUE (tenant_id, kind, path)
 );
 CREATE INDEX ON categories USING gist (path);
@@ -695,7 +697,7 @@ jobs (BR-097) only; no request path deletes an order (BR-079).
 ### 3.7 Category path trigger
 
 Enforces BR-032 (path derived, subtree rewritten in one statement), BR-034 (no cycles) and BR-035
-(same-name siblings disambiguated).
+(same-name siblings disambiguated; a client-set `label` that clashes is refused instead).
 
 ```sql
 -- ltree labels accept only [A-Za-z0-9_], so names are slugified.
@@ -709,9 +711,9 @@ $$ LANGUAGE sql STABLE;   -- unaccent reads a dictionary, so not IMMUTABLE
 CREATE OR REPLACE FUNCTION categories_set_path() RETURNS trigger AS $$
 DECLARE
   parent_path ltree;
-  base text; label text; candidate ltree; n int := 0;
+  base text; lbl text; candidate ltree; n int := 0;
 BEGIN
-  base := slugify_label(NEW.name);
+  base := coalesce(NEW.label, slugify_label(NEW.name));
   IF base = '' THEN base := 'cat'; END IF;
 
   IF NEW.parent_id IS NOT NULL THEN
@@ -723,17 +725,22 @@ BEGIN
     END IF;
   END IF;
 
-  -- Two siblings named "Jackets" slugify identically; disambiguate.
-  label := base;
+  -- Two siblings named "Jackets" slugify identically; disambiguate. A label the
+  -- client chose is refused instead of silently changed.
+  lbl := base;
   LOOP
     candidate := CASE WHEN parent_path IS NULL
-                      THEN label::ltree ELSE parent_path || label::ltree END;
+                      THEN lbl::ltree ELSE parent_path || lbl::ltree END;
     EXIT WHEN NOT EXISTS (
       SELECT 1 FROM categories
        WHERE tenant_id = NEW.tenant_id AND kind = NEW.kind
          AND path = candidate AND id IS DISTINCT FROM NEW.id);
+    IF NEW.label IS NOT NULL THEN
+      RAISE EXCEPTION 'category label % is taken', NEW.label
+        USING ERRCODE = 'P0001', HINT = 'category_label_taken';
+    END IF;
     n := n + 1;
-    label := base || '_' || n;
+    lbl := base || '_' || n;
   END LOOP;
 
   NEW.path := candidate;
@@ -741,7 +748,7 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER categories_path_biu
-  BEFORE INSERT OR UPDATE OF name, parent_id ON categories
+  BEFORE INSERT OR UPDATE OF name, parent_id, label ON categories
   FOR EACH ROW EXECUTE FUNCTION categories_set_path();
 
 -- AFTER: rebase every descendant when this row's path changed.
@@ -762,10 +769,10 @@ BEGIN
   RETURN NULL;
 END $$ LANGUAGE plpgsql;
 
--- OF name, parent_id, not OF path: a column list matches the UPDATE's SET
--- list, and a move sets parent_id while the BEFORE trigger changes path.
+-- OF name, parent_id, label, not OF path: a column list matches the UPDATE's
+-- SET list, and a move sets parent_id while the BEFORE trigger changes path.
 CREATE TRIGGER categories_move_aiu
-  AFTER UPDATE OF name, parent_id ON categories
+  AFTER UPDATE OF name, parent_id, label ON categories
   FOR EACH ROW EXECUTE FUNCTION categories_move_subtree();
 ```
 
