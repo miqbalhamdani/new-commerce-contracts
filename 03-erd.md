@@ -248,11 +248,11 @@ CREATE TABLE brands (
     id          uuid PRIMARY KEY,
     tenant_id   uuid NOT NULL REFERENCES tenants(id),
     name        text NOT NULL,
-    slug        text NOT NULL,          -- derived from name, never from a client (BR-008, BR-030)
+    slug        text NOT NULL,          -- slugify(name) unless the client sets one (BR-030)
     archived_at timestamptz,
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (tenant_id, slug)            -- archived brands included (BR-030)
+    UNIQUE (tenant_id, slug)            -- deleted (archived) brands included (BR-030)
 );
 CREATE INDEX ON brands (tenant_id) WHERE archived_at IS NULL;
 CREATE INDEX ON brands (tenant_id, lower(name));   -- import matches brands by name (BR-103)
