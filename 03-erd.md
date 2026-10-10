@@ -589,6 +589,8 @@ CREATE TABLE orders (
     source           text NOT NULL CHECK (source IN ('storefront','manual')),
     -- BR-088. One cart becomes at most one order. This UNIQUE is the backstop
     -- for a double-tapped checkout. Manual orders have no cart.
+    -- P1-204 adds this column and orders_same_tenant_as_cart; P1-100's
+    -- migration ships without them (there is no carts table yet).
     cart_id          uuid UNIQUE,
     customer_id      uuid,                            -- NULL for guest and manual orders
     order_number     text NOT NULL,                   -- 'TKA-000123' (BR-077)
@@ -600,6 +602,9 @@ CREATE TABLE orders (
     customer         jsonb NOT NULL DEFAULT '{}'::jsonb,   -- {name, email, phone}
     shipping_address jsonb NOT NULL DEFAULT '{}'::jsonb,   -- {line1, line2, city, province, postal_code}
     note             text,
+    -- subtotal_amount is Σ qty·unit_price before any discount; discount_amount
+    -- is Σ order_lines.discount_amount. That is what makes the total CHECK
+    -- below hold by construction (BR-078).
     subtotal_amount  bigint NOT NULL DEFAULT 0,
     shipping_amount  bigint NOT NULL DEFAULT 0,
     discount_amount  bigint NOT NULL DEFAULT 0,
@@ -642,6 +647,12 @@ CREATE INDEX ON orders (tenant_id, customer_id, placed_at DESC)
 CREATE INDEX ON orders (tenant_id, placed_at DESC)
     WHERE status = 'cancelled' AND paid_at IS NOT NULL AND refunded_at IS NULL;  -- refund owed
 ALTER TABLE orders ADD CONSTRAINT orders_id_tenant_uq UNIQUE (id, tenant_id);
+
+-- The order list's `q` (order_number, customer name/email/phone) is a plain
+-- ILIKE scan on purpose: 10k orders per tenant sit far inside the 800 ms
+-- budget (P1-103), and the three indexes above serve the saved views. If a
+-- tenant outgrows it, the upgrade is pg_trgm expression indexes on
+-- order_number and the customer jsonb fields, as products do for title.
 
 CREATE TABLE order_lines (
     id              uuid PRIMARY KEY,

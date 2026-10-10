@@ -155,19 +155,19 @@ to work an order the day the first one arrives.
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-100 | Schema: `customers`, `order_sequences`, `orders`, `order_lines` | BE | 026, 018 | As `03-erd.md` §3.5–3.6 minus `orders.cart_id`, which arrives with `P1-204`; the shipped-needs-tracking and refund CHECKs refuse direct SQL; archiving a variant leaves its order lines intact (BR-004, BR-045, BR-072, BR-076, BR-077, BR-079) | todo | |
-| P1-101 | Order `Transition`: allow-list, row lock, stamps, audit | BE | 100 | Unit-tested over every from × to pair; a move to the current status is a no-op; exactly one audit row per change (BR-070, BR-071, BR-073) | todo | |
-| P1-102 | Status routes: mark-paid, process, ship, complete, cancel, refund | BE | 101 | As §5.3; illegal → `409 illegal_transition`; ship without tracking → `422`; refund only on a paid, cancelled order, once (BR-072, BR-074, BR-075) | todo | |
-| P1-103 | Order list API with saved-view filters | BE | 100 | As §5.1; `refund_owed=true` returns exactly the cancelled-paid-unrefunded orders; p95 first byte < 800 ms at 10k orders (BR-075) | todo | |
-| P1-104 | Order detail and `PATCH` while pending | BE | 101 | As §5.2; `PATCH` after `pending` → `422`; totals recomputed; `allowed_transitions` from the allow-list (BR-010, BR-079) | todo | |
-| P1-105 | Manual order entry `POST /v1/orders` | BE | 101 | As §5.4; prices from the catalog; a `unit_price` in the body → `422 unknown_field`; snapshots written (BR-076, BR-078) | todo | |
-| P1-106 | Customer list and detail API | BE | 100 | As §5.5; no credential field ever appears (BR-092) | todo | |
-| P1-107 | Order export job | BE | 060, 103 | As §5.6; one row per line; opens cleanly in Excel with Indonesian locale; link regenerates (BR-063, BR-064, BR-065) | todo | |
-| P1-108 | Order list screen with saved views | FE | 103 | The four saved views of `01-product-requirements.md` §6.1; mark-paid from the list | todo | |
-| P1-109 | Order detail screen: actions, ship dialog, refund record, audit trail | FE | 102, 104, 077 | Only `allowed_transitions` are offered; the ship dialog requires courier and tracking (BR-025, BR-072) | todo | |
-| P1-110 | Manual order entry screen | FE | 105 | Submit is disabled while the request is in flight (BR-078) | todo | |
-| P1-111 | Customer list and detail screens | FE | 106 | Detail shows the customer's orders, newest first | todo | |
-| P1-112 | Order export screen | FE | 107 | Uses the order-list filters; download link expires in 15 minutes and can be regenerated (BR-063) | todo | |
+| P1-100 | Schema: `customers`, `order_sequences`, `orders`, `order_lines` | BE | 026, 018 | As `03-erd.md` §3.5–3.6 minus `orders.cart_id`, which arrives with `P1-204`; the shipped-needs-tracking and refund CHECKs refuse direct SQL; archiving a variant leaves its order lines intact (BR-004, BR-045, BR-072, BR-076, BR-077, BR-079) | review | Iqbal Hamdani |
+| P1-101 | Order `Transition`: allow-list, row lock, stamps, audit | BE | 100 | Unit-tested over every from × to pair; a move to the current status is a no-op; exactly one audit row per change (BR-070, BR-071, BR-073) | review | Iqbal Hamdani |
+| P1-102 | Status routes: mark-paid, process, ship, complete, cancel, refund | BE | 101 | As §5.3; illegal → `409 illegal_transition`; ship without tracking → `422`; refund only on a paid, cancelled order, once (BR-072, BR-074, BR-075) | review | Iqbal Hamdani |
+| P1-103 | Order list API with saved-view filters | BE | 100 | As §5.1; `refund_owed=true` returns exactly the cancelled-paid-unrefunded orders; p95 first byte < 800 ms at 10k orders (BR-075) | review | Iqbal Hamdani |
+| P1-104 | Order detail and `PATCH` while pending | BE | 101 | As §5.2; `PATCH` after `pending` → `422`; totals recomputed; `allowed_transitions` from the allow-list (BR-010, BR-079) | review | Iqbal Hamdani |
+| P1-105 | Manual order entry `POST /v1/orders` | BE | 101 | As §5.4; prices from the catalog; a `unit_price` in the body → `422 unknown_field`; snapshots written (BR-076, BR-078) | review | Iqbal Hamdani |
+| P1-106 | Customer list and detail API | BE | 100 | As §5.5; no credential field ever appears (BR-092) | review | Iqbal Hamdani |
+| P1-107 | Order export job | BE | 060, 103 | As §5.6; one row per line; opens cleanly in Excel with Indonesian locale; link regenerates (BR-063, BR-064, BR-065) | review | Iqbal Hamdani |
+| P1-108 | Order list screen with saved views | FE | 103 | The four saved views of `01-product-requirements.md` §6.1; mark-paid from the list | review | Iqbal Hamdani |
+| P1-109 | Order detail screen: actions, ship dialog, refund record, audit trail | FE | 102, 104, 077 | Only `allowed_transitions` are offered; the ship dialog requires courier and tracking (BR-025, BR-072) | review | Iqbal Hamdani |
+| P1-110 | Manual order entry screen | FE | 105 | Submit is disabled while the request is in flight (BR-078) | review | Iqbal Hamdani |
+| P1-111 | Customer list and detail screens | FE | 106 | Detail shows the customer's orders, newest first | review | Iqbal Hamdani |
+| P1-112 | Order export screen | FE | 107 | Uses the order-list filters; download link expires in 15 minutes and can be regenerated (BR-063) | review | Iqbal Hamdani |
 
 ---
 
