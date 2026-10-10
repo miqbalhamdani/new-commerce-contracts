@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -1203,6 +1203,188 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
+  /orders/{id}/mark-paid:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: markOrderPaid
+      summary: Record a confirmed payment
+      description: |
+        The operator's confirmation of a bank transfer, and on a Midtrans order the override for a
+        payment confirmed outside Midtrans — a later notification is then a no-op (BR-074). Calls
+        the one Transition (BR-071): repeating a move is a `200` no-op, a move not in the allow-list
+        is `409 illegal_transition` naming from and to (BR-070). No `If-Match` on any transition:
+        the row lock is the concurrency control. Every transition bumps `version` and writes one
+        audit row (BR-073). Requires `orders:write`.
+      responses:
+        "200":
+          description: The order, paid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /orders/{id}/process:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: processOrder
+      summary: Start processing a paid order
+      description: |
+        `paid → processing` (BR-070); no timestamp of its own. Same Transition semantics as
+        `mark-paid`. Requires `orders:write`.
+      responses:
+        "200":
+          description: The order, processing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /orders/{id}/ship:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: shipOrder
+      summary: Record the courier and tracking number and mark shipped
+      description: |
+        `processing → shipped`. `tracking_number` is required, else `422`; `courier` defaults to
+        the order's `shipping_courier`, so a manual order with no chosen courier must send it
+        (BR-072). Shipping is recorded, not booked. Same Transition semantics as `mark-paid`.
+        Requires `orders:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderShipRequest"
+      responses:
+        "200":
+          description: The order, shipped.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /orders/{id}/complete:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: completeOrder
+      summary: Close a shipped order
+      description: |
+        `shipped → completed` (BR-070). Same Transition semantics as `mark-paid`. Requires
+        `orders:write`.
+      responses:
+        "200":
+          description: The order, completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /orders/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: cancelOrder
+      summary: Cancel an order
+      description: |
+        Allowed from `pending`, `paid` and `processing` (BR-070). The optional `reason` has no
+        column; it lands in the audit row (BR-073). Cancelling a paid order moves no money — the
+        refund is recorded separately (BR-075). Same Transition semantics as `mark-paid`.
+        Requires `orders:write`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderCancelRequest"
+      responses:
+        "200":
+          description: The order, cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /orders/{id}/refund:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: refundOrder
+      summary: Record a refund made outside the system
+      description: |
+        Not a status change: the order stays `cancelled`, `refunded_at` is set and `version` bumps.
+        Allowed once, on a cancelled order that was paid; anything else is `422` (BR-075). The
+        optional `note` lands in the audit row. The row lock serialises it like a transition.
+        Requires `orders:write`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderRefundRequest"
+      responses:
+        "200":
+          description: The order, with `refunded_at` set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
 components:
 
   securitySchemes:
@@ -2339,6 +2521,267 @@ components:
             $ref: "#/components/schemas/AuditEntry"
         next_cursor:
           type: [string, "null"]
+
+    OrderStatus:
+      type: string
+      description: The BR-070 state machine's states.
+      enum: [pending, paid, processing, shipped, completed, cancelled]
+
+    OrderSource:
+      type: string
+      enum: [storefront, manual]
+
+    OrderCustomerSnapshot:
+      type: object
+      description: The customer as they were when the order was placed (BR-076), not a live reference.
+      required: [name, email, phone]
+      properties:
+        name:
+          type: string
+        email:
+          type: [string, "null"]
+        phone:
+          type: [string, "null"]
+
+    ShippingAddress:
+      type: object
+      required: [line1, line2, city, province, postal_code]
+      properties:
+        line1:
+          type: string
+        line2:
+          type: [string, "null"]
+        city:
+          type: string
+        province:
+          type: string
+        postal_code:
+          type: string
+
+    ShippingAddressWrite:
+      type: object
+      required: [line1, city, province, postal_code]
+      additionalProperties: false
+      properties:
+        line1:
+          type: string
+          minLength: 1
+        line2:
+          type: [string, "null"]
+        city:
+          type: string
+          minLength: 1
+        province:
+          type: string
+          minLength: 1
+        postal_code:
+          type: string
+          minLength: 1
+
+    OrderLine:
+      type: object
+      description: |
+        A snapshot at the time of order (BR-076): the wire drops the `_snapshot` and `_amount`
+        suffixes. `sku` is empty for a variant that had none.
+      required: [id, variant_id, sku, title, qty, unit_price, discount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        variant_id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        title:
+          type: string
+          examples: ["Erigo Basic Tee — Black / M"]
+        qty:
+          type: integer
+          minimum: 1
+        unit_price:
+          $ref: "#/components/schemas/Money"
+        discount:
+          allOf:
+            - $ref: "#/components/schemas/Money"
+          description: Per-line discount; manual orders only (BR-078).
+
+    OrderPayment:
+      type: object
+      description: |
+        One Midtrans Snap attempt, newest first (BR-123). Always `[]` until `P1-220` builds
+        Midtrans at checkout; bank transfers never have a row.
+      required: [provider_order_id, status, transaction_status, amount, paid_at, created_at]
+      properties:
+        provider_order_id:
+          type: string
+          examples: ["ERG-000123"]
+        status:
+          type: string
+          enum: [pending, paid, failed, amount_mismatch]
+        transaction_status:
+          type: [string, "null"]
+          description: The last status confirmed by the Get Status API (BR-125).
+        amount:
+          $ref: "#/components/schemas/Money"
+        paid_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    OrderHistoryEntry:
+      type: object
+      description: |
+        One entry of the order's audit trail (BR-073), embedded in the order so ops can read it
+        with `orders:read` alone — `GET /audit-log` keeps requiring `audit_log:read`. `from` and
+        `to` are set for `order.transition` and `null` for other actions; `actor` is `null` for
+        the system.
+      required: [actor, action, from, to, created_at]
+      properties:
+        actor:
+          oneOf:
+            - $ref: "#/components/schemas/Ref"
+            - type: "null"
+        action:
+          type: string
+          examples: ["order.transition"]
+        from:
+          oneOf:
+            - $ref: "#/components/schemas/OrderStatus"
+            - type: "null"
+        to:
+          oneOf:
+            - $ref: "#/components/schemas/OrderStatus"
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+
+    Order:
+      type: object
+      description: |
+        An order in full. `allowed_transitions` comes from the BR-070 allow-list so clients never
+        hardcode it; recording a refund is not in it because it does not change `status` (BR-075).
+        `history` is newest first.
+      required: [id, order_number, source, status, version, customer_id, customer,
+                 shipping_address, note, lines, subtotal, shipping, discount, total,
+                 payment_method, payments, shipping_courier, shipping_service, courier,
+                 tracking_number, placed_at, paid_at, shipped_at, completed_at, cancelled_at,
+                 refunded_at, allowed_transitions, history]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_number:
+          type: string
+          examples: ["ERG-000123"]
+        source:
+          $ref: "#/components/schemas/OrderSource"
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        version:
+          type: integer
+          description: Send it back in `If-Match` on `PATCH`; transitions take none (BR-010).
+        customer_id:
+          type: [string, "null"]
+          format: uuid
+          description: "`null` for guest and manual orders."
+        customer:
+          $ref: "#/components/schemas/OrderCustomerSnapshot"
+        shipping_address:
+          $ref: "#/components/schemas/ShippingAddress"
+        note:
+          type: [string, "null"]
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderLine"
+        subtotal:
+          allOf:
+            - $ref: "#/components/schemas/Money"
+          description: Σ qty·unit_price before any discount.
+        shipping:
+          $ref: "#/components/schemas/Money"
+        discount:
+          allOf:
+            - $ref: "#/components/schemas/Money"
+          description: Σ line discounts, so `total = subtotal + shipping - discount` (BR-078).
+        total:
+          $ref: "#/components/schemas/Money"
+        payment_method:
+          type: string
+          enum: [bank_transfer, midtrans]
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderPayment"
+        shipping_courier:
+          type: [string, "null"]
+          description: Biteship courier code the shopper chose; `null` on manual orders (BR-121).
+        shipping_service:
+          type: [string, "null"]
+        courier:
+          type: [string, "null"]
+          description: Set when shipped (BR-072); defaults to `shipping_courier`.
+        tracking_number:
+          type: [string, "null"]
+        placed_at:
+          type: string
+          format: date-time
+        paid_at:
+          type: [string, "null"]
+          format: date-time
+        shipped_at:
+          type: [string, "null"]
+          format: date-time
+        completed_at:
+          type: [string, "null"]
+          format: date-time
+        cancelled_at:
+          type: [string, "null"]
+          format: date-time
+        refunded_at:
+          type: [string, "null"]
+          format: date-time
+        allowed_transitions:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderStatus"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderHistoryEntry"
+
+    OrderShipRequest:
+      type: object
+      required: [tracking_number]
+      additionalProperties: false
+      properties:
+        courier:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+          description: Biteship courier code; defaults to the order's `shipping_courier` (BR-072).
+        tracking_number:
+          type: string
+          minLength: 1
+
+    OrderCancelRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          description: Recorded in the audit row only; there is no column (BR-073).
+
+    OrderRefundRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        note:
+          type: string
+          description: Recorded in the audit row only (BR-075).
 
     Money:
       type: integer

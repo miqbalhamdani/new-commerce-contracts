@@ -441,7 +441,10 @@ GET /v1/orders/{id}
   "courier": null, "tracking_number": null,
   "placed_at": "…", "paid_at": "…", "shipped_at": null, "completed_at": null,
   "cancelled_at": null, "refunded_at": null,
-  "allowed_transitions": ["shipped", "cancelled"] }
+  "allowed_transitions": ["shipped", "cancelled"],
+  "history": [                                          ← the order's audit trail, newest first
+    { "actor": { "id": "0192…", "name": "Siti" }, "action": "order.transition",
+      "from": "paid", "to": "processing", "created_at": "…" } ] }
 
 PATCH /v1/orders/{id}          If-Match: 3
 { "shipping_address": { … }, "note": "…", "shipping": 1500000 }
@@ -450,6 +453,9 @@ PATCH /v1/orders/{id}          If-Match: 3
 
 `PATCH` accepts only `shipping_address`, `note` and `shipping`, and only while `pending`; otherwise
 `422` (BR-079). `allowed_transitions` comes from the allow-list so the client never hardcodes it.
+`history` is the order's own audit trail (BR-073), embedded so ops can read it with `orders:read`
+alone — `GET /v1/audit-log` keeps requiring `audit_log:read`. `from` and `to` are set for
+`order.transition` and `null` for other actions; `actor` is `null` for the system.
 
 ### 5.3 Transitions
 
