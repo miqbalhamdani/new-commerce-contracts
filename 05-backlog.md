@@ -156,7 +156,7 @@ to work an order the day the first one arrives.
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
 | P1-100 | Schema: `customers`, `order_sequences`, `orders`, `order_lines` | BE | 026, 018 | As `03-erd.md` §3.5–3.6 minus `orders.cart_id`, which arrives with `P1-204`; the shipped-needs-tracking and refund CHECKs refuse direct SQL; archiving a variant leaves its order lines intact (BR-004, BR-045, BR-072, BR-076, BR-077, BR-079) | review | Iqbal Hamdani |
-| P1-101 | Order `Transition`: allow-list, row lock, stamps, audit | BE | 100 | Unit-tested over every from × to pair; a move to the current status is a no-op; exactly one audit row per change (BR-070, BR-071, BR-073) | todo | |
+| P1-101 | Order `Transition`: allow-list, row lock, stamps, audit | BE | 100 | Unit-tested over every from × to pair; a move to the current status is a no-op; exactly one audit row per change (BR-070, BR-071, BR-073) | review | Iqbal Hamdani |
 | P1-102 | Status routes: mark-paid, process, ship, complete, cancel, refund | BE | 101 | As §5.3; illegal → `409 illegal_transition`; ship without tracking → `422`; refund only on a paid, cancelled order, once (BR-072, BR-074, BR-075) | todo | |
 | P1-103 | Order list API with saved-view filters | BE | 100 | As §5.1; `refund_owed=true` returns exactly the cancelled-paid-unrefunded orders; p95 first byte < 800 ms at 10k orders (BR-075) | todo | |
 | P1-104 | Order detail and `PATCH` while pending | BE | 101 | As §5.2; `PATCH` after `pending` → `422`; totals recomputed; `allowed_transitions` from the allow-list (BR-010, BR-079) | todo | |
