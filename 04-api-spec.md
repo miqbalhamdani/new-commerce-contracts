@@ -25,7 +25,7 @@ the other, in the same commit.
 | Ids | UUID strings (BR-005). Storefront products are addressed by `slug`, orders by `order_number` |
 | Money | A plain integer in minor units: `2000000` is Rp 20.000. Always IDR, so no currency field (BR-006) |
 | Time | RFC 3339 with the WIB offset: `2026-10-06T16:15:00+07:00`. Input must carry an offset, else `422`; a date-only filter means midnight WIB (BR-007) |
-| Server-managed fields | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `*_at` audit stamps, brand `slug`: sending one is `422`, on create and update alike (BR-008) |
+| Server-managed fields | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `*_at` audit stamps: sending one is `422`, on create and update alike. Brand and product slugs are editable (BR-008) |
 | Unknown fields | `422 unknown_field`, never ignored. In particular, any price field on a cart or checkout route (BR-089) |
 | Omitted vs `null` | Create: omitted takes the default, `null` is `422`. `PATCH`: omitted is unchanged, `null` clears a nullable field (BR-009) |
 | Concurrency | `If-Match: <version>` on every `PATCH` to products, variants and orders, and on `PUT` variant-matrix; stale → `409 version_conflict` (BR-010) |
@@ -561,12 +561,19 @@ POST /v1/brands
 { "id": "0192…", "name": "Erigo", "slug": "erigo", "archived_at": null,
   "created_at": "2026-10-06T16:15:00+07:00", "updated_at": "2026-10-06T16:15:00+07:00" }
 
+POST /v1/brands
+{ "name": "Erigo", "slug": "erigo-official" }      ← slug optional; omitted means slugify(name)
+
 PATCH /v1/brands/{id}
 { "name": "Erigo Apparel" }
-200 OK   ← Brand, slug re-derived
+200 OK   ← Brand, slug re-derived because none was sent
+
+DELETE /v1/brands/{id}
+204 No Content   ← archived_at set; every product's brand_id cleared (BR-012)
 ```
 
-A name whose slug matches another brand's, archived ones included, is `422` on `name` (BR-030).
+A slug that clashes with another brand's, deleted ones included, is `422` on `slug` when the
+client sent it, else on `name` (BR-030). Deleting is never blocked by products using the brand.
 No `If-Match`: brands have no `version`, so the last save wins (BR-010).
 The list is sorted by `name`; `q` matches the name.
 

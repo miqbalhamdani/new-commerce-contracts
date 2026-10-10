@@ -103,9 +103,9 @@ instant exact, so the choice of zone is presentation only.
 
 ### BR-008 Server-managed fields are never accepted
 `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, any `*_at` audit timestamp, and
-derived slugs (`brands.slug`) are set by the server. A client that sends one gets
-`422 validation_failed` naming the field, **on create and on update alike**. Product slugs are
-the exception: they are editable (BR-042).
+derived values are set by the server. A client that sends one gets `422 validation_failed`
+naming the field, **on create and on update alike**. Slugs are the exception: brand and product
+slugs default to a derived value and are editable (BR-030, BR-042).
 
 *Why:* silently ignoring a field teaches the client that sending it worked. One rule for both
 verbs means there is nothing to remember.
@@ -137,7 +137,9 @@ does not exist.
 someone else's row would reveal which ids exist.
 
 ### BR-012 Deleting catalog data means archiving
-`DELETE` on a brand, category, product or variant sets `archived_at`; the row stays. Users are
+`DELETE` on a brand, category, product or variant sets `archived_at`; the row stays. Deleting a
+brand also clears `brand_id` on every product that carries it, bumping each product's `version`;
+the admin shows a deleted brand nowhere (BR-030). Users are
 disabled (BR-027), API keys are revoked (BR-028). Media is the only thing truly deleted. Orders
 are never deleted (BR-079).
 
@@ -303,9 +305,12 @@ currency later is a feature, not a migration.
 ## 3. Catalog
 
 ### BR-030 Brands
-A brand's `slug` is derived from its name and unique per tenant, archived brands included, so two
-brands whose names slugify the same are rejected. A brand on a product is optional. Marketplace
-import matches brands by name and creates a missing one (BR-103).
+A brand's `slug` defaults to `slugify(name)` and can be set by the client on create or update.
+A rename that does not send `slug` re-derives it from the new name. Slugs are lower-case a-z0-9
+joined by single hyphens and unique per tenant, deleted (archived) brands included; a clash is
+`422` on `slug` when the client sent one, else on `name`. A brand on a product is optional, and
+deleting a brand clears it from its products (BR-012). Marketplace import matches brands by name
+and creates a missing one (BR-103).
 
 ### BR-031 Each category kind is an independent tree
 `kind` is one of `category`, `series`, `collection`, `activity` or `custom`, and each kind is its

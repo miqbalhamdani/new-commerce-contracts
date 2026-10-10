@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 2.5.0
+  version: 2.6.0
   description: |
     Ecommerce Backoffice v2 — the admin API (`/v1`). The storefront API (`/v1/storefront`) is
     published as its own document, `/v1/storefront/openapi.json`, built by `P1-213`.
@@ -223,9 +223,9 @@ paths:
       operationId: createBrand
       summary: Create a brand
       description: |
-        The slug is derived from the name and is never accepted from a client (BR-008). A name
-        whose slug matches another brand's in this tenant, archived ones included, is `422` on
-        `name` (BR-030). Requires `brands:write`.
+        `slug` is optional and defaults to `slugify(name)`. A slug that matches another brand's
+        in this tenant, deleted ones included, is `422` on `slug` when sent, else on `name`
+        (BR-030). Requires `brands:write`.
       requestBody:
         required: true
         content:
@@ -267,10 +267,10 @@ paths:
           $ref: "#/components/responses/NotFound"
     patch:
       operationId: updateBrand
-      summary: Rename a brand
+      summary: Rename a brand or change its slug
       description: |
-        The slug is re-derived from the new name. No `If-Match`: brands have no version and the
-        last save wins (BR-010). Requires `brands:write`.
+        Without `slug`, the slug is re-derived from the new name. No `If-Match`: brands have no
+        version and the last save wins (BR-010). Requires `brands:write`.
       requestBody:
         required: true
         content:
@@ -294,11 +294,13 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
     delete:
       operationId: archiveBrand
-      summary: Archive a brand
-      description: Sets `archived_at`; the row is kept (BR-012). Requires `brands:write`.
+      summary: Delete a brand
+      description: |
+        Soft delete: sets `archived_at` and keeps the row, and clears `brand_id` on every product
+        that carries it (BR-012). Never blocked by products. Requires `brands:write`.
       responses:
         "204":
-          description: Archived.
+          description: Deleted.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1404,7 +1406,7 @@ components:
           type: string
         slug:
           type: string
-          description: Derived from `name`; read-only (BR-030).
+          description: Defaults to `slugify(name)`; editable (BR-030).
           examples: ["erigo"]
         archived_at:
           type: [string, "null"]
@@ -1424,6 +1426,10 @@ components:
         name:
           type: string
           minLength: 1
+        slug:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          description: Omitted means `slugify(name)` (BR-030).
 
     BrandPage:
       type: object
