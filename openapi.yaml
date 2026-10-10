@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes, `P1-103` the order list.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -1196,6 +1196,80 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuditPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /orders:
+    get:
+      operationId: listOrders
+      summary: Orders, filtered and cursor-paginated
+      description: |
+        The ops workspace (BR-075). `status` repeats to OR values; the saved views are plain
+        filters — To confirm payment `status=pending`, To ship `status=paid&status=processing`,
+        Shipped `status=shipped`, Cancelled refund owed `refund_owed=true`, which returns exactly
+        the cancelled orders that were paid and not yet refunded. `q` matches `order_number` and
+        the customer's name, email and phone. `placed_from` and `placed_to` take an RFC 3339 time
+        with an offset, or a date, which means midnight WIB (BR-007). `item_count` is the summed
+        `qty`. Target: p95 first byte under 800 ms at 10k orders (P1-103). Requires `orders:read`.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/OrderStatus"
+        - name: source
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/OrderSource"
+        - name: customer_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: refund_owed
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: placed_from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: placed_to
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["-placed_at", "placed_at"]
+            default: "-placed_at"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderPage"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2782,6 +2856,50 @@ components:
         note:
           type: string
           description: Recorded in the audit row only (BR-075).
+
+    OrderListRow:
+      type: object
+      required: [id, order_number, source, status, version, customer, item_count, total,
+                 placed_at, paid_at, refunded_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_number:
+          type: string
+        source:
+          $ref: "#/components/schemas/OrderSource"
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        version:
+          type: integer
+        customer:
+          $ref: "#/components/schemas/OrderCustomerSnapshot"
+        item_count:
+          type: integer
+          description: Summed `qty` over the order's lines.
+        total:
+          $ref: "#/components/schemas/Money"
+        placed_at:
+          type: string
+          format: date-time
+        paid_at:
+          type: [string, "null"]
+          format: date-time
+        refunded_at:
+          type: [string, "null"]
+          format: date-time
+
+    OrderPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderListRow"
+        next_cursor:
+          type: [string, "null"]
 
     Money:
       type: integer
