@@ -163,11 +163,11 @@ to work an order the day the first one arrives.
 | P1-105 | Manual order entry `POST /v1/orders` | BE | 101 | As §5.4; prices from the catalog; a `unit_price` in the body → `422 unknown_field`; snapshots written (BR-076, BR-078) | review | Iqbal Hamdani |
 | P1-106 | Customer list and detail API | BE | 100 | As §5.5; no credential field ever appears (BR-092) | review | Iqbal Hamdani |
 | P1-107 | Order export job | BE | 060, 103 | As §5.6; one row per line; opens cleanly in Excel with Indonesian locale; link regenerates (BR-063, BR-064, BR-065) | review | Iqbal Hamdani |
-| P1-108 | Order list screen with saved views | FE | 103 | The four saved views of `01-product-requirements.md` §6.1; mark-paid from the list | todo | |
-| P1-109 | Order detail screen: actions, ship dialog, refund record, audit trail | FE | 102, 104, 077 | Only `allowed_transitions` are offered; the ship dialog requires courier and tracking (BR-025, BR-072) | todo | |
-| P1-110 | Manual order entry screen | FE | 105 | Submit is disabled while the request is in flight (BR-078) | todo | |
-| P1-111 | Customer list and detail screens | FE | 106 | Detail shows the customer's orders, newest first | todo | |
-| P1-112 | Order export screen | FE | 107 | Uses the order-list filters; download link expires in 15 minutes and can be regenerated (BR-063) | todo | |
+| P1-108 | Order list screen with saved views | FE | 103 | The four saved views of `01-product-requirements.md` §6.1; mark-paid from the list | review | Iqbal Hamdani |
+| P1-109 | Order detail screen: actions, ship dialog, refund record, audit trail | FE | 102, 104, 077 | Only `allowed_transitions` are offered; the ship dialog requires courier and tracking (BR-025, BR-072) | review | Iqbal Hamdani |
+| P1-110 | Manual order entry screen | FE | 105 | Submit is disabled while the request is in flight (BR-078) | review | Iqbal Hamdani |
+| P1-111 | Customer list and detail screens | FE | 106 | Detail shows the customer's orders, newest first | review | Iqbal Hamdani |
+| P1-112 | Order export screen | FE | 107 | Uses the order-list filters; download link expires in 15 minutes and can be regenerated (BR-063) | review | Iqbal Hamdani |
 
 ---
 
