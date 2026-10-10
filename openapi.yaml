@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes, `P1-103` the order list, `P1-104` order detail, `P1-105` manual orders, `P1-106` customers.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes, `P1-103` the order list, `P1-104` order detail, `P1-105` manual orders, `P1-106` customers, `P1-107` order export.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -1542,6 +1542,36 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /orders/export:
+    post:
+      operationId: exportOrders
+      summary: Export orders to CSV as a background job
+      description: |
+        The accounting integration (BR-065): one CSV row per order line, order fields repeated,
+        UTF-8 BOM, amounts written so a comma-decimal locale cannot corrupt them (BR-064). The
+        body takes the §5.1 list filters with `status` as an array. Answers `202 {job_id}`; poll
+        `GET /jobs/{id}` — every `GET` of the finished job signs a fresh 15-minute `download_url`
+        (BR-063). Requires `exports:read`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderExportRequest"
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
@@ -3098,6 +3128,30 @@ components:
             $ref: "#/components/schemas/OrderListRow"
         next_cursor:
           type: [string, "null"]
+
+    OrderExportRequest:
+      type: object
+      description: The §5.1 order-list filters, with `status` as an array (BR-065).
+      additionalProperties: false
+      properties:
+        status:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderStatus"
+        source:
+          $ref: "#/components/schemas/OrderSource"
+        customer_id:
+          type: string
+          format: uuid
+        refund_owed:
+          type: boolean
+        placed_from:
+          type: string
+          description: RFC 3339 with an offset, or a date meaning midnight WIB (BR-007).
+        placed_to:
+          type: string
+        q:
+          type: string
 
     Customer:
       type: object
