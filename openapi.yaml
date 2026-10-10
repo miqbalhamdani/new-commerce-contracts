@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes, `P1-103` the order list, `P1-104` order detail.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes, `P1-103` the order list, `P1-104` order detail, `P1-105` manual orders.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -1270,6 +1270,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OrderPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    post:
+      operationId: createOrder
+      summary: Enter a manual (WhatsApp) order
+      description: |
+        Line prices come from `variant_price()` exactly as checkout does — a `unit_price` anywhere
+        in the request is `422 unknown_field` (BR-046, BR-078). Archived variants are `422` naming
+        the line. `source` must be `manual`; the order is created `pending`, always
+        `bank_transfer`, with the customer and lines snapshotted (BR-076) and its number from the
+        tenant sequence (BR-077). `shipping` is a typed amount; `shipping_option` arrives with
+        `P1-218`. Requires `orders:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderCreateRequest"
+      responses:
+        "201":
+          description: Created, pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2913,6 +2942,53 @@ components:
         note:
           type: string
           description: Recorded in the audit row only (BR-075).
+
+    OrderCreateRequest:
+      type: object
+      required: [source, customer, shipping_address, lines]
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          enum: [manual]
+        customer:
+          type: object
+          required: [name]
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+              minLength: 1
+            email:
+              type: [string, "null"]
+            phone:
+              type: [string, "null"]
+        shipping_address:
+          $ref: "#/components/schemas/ShippingAddressWrite"
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [variant_id, qty]
+            additionalProperties: false
+            properties:
+              variant_id:
+                type: string
+                format: uuid
+              qty:
+                type: integer
+                minimum: 1
+              discount:
+                allOf:
+                  - $ref: "#/components/schemas/Money"
+                description: Per-line discount in minor units (BR-078).
+        shipping:
+          allOf:
+            - $ref: "#/components/schemas/Money"
+          description: A typed shipping amount; `shipping_option` arrives with `P1-218` (BR-121).
+        note:
+          type: string
 
     OrderUpdateRequest:
       type: object
