@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes, `P1-103` the order list, `P1-104` order detail, `P1-105` manual orders.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes, `P1-103` the order list, `P1-104` order detail, `P1-105` manual orders, `P1-106` customers.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -1545,6 +1545,58 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
+  /customers:
+    get:
+      operationId: listCustomers
+      summary: Customers, searched and cursor-paginated
+      description: |
+        Read-only: staff never create accounts, set passwords or see password hashes (BR-092).
+        `q` matches name, email and phone. Requires `customers:read`.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of customers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /customers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getCustomer
+      summary: One customer and their latest orders
+      description: |
+        The profile plus up to 50 order-list rows, newest first. No credential field ever appears
+        (BR-092). Requires `customers:read`.
+      responses:
+        "200":
+          description: The customer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
 
   securitySchemes:
@@ -3046,6 +3098,49 @@ components:
             $ref: "#/components/schemas/OrderListRow"
         next_cursor:
           type: [string, "null"]
+
+    Customer:
+      type: object
+      description: Never a password hash, session or token (BR-092).
+      required: [id, name, email, phone, order_count, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: [string, "null"]
+        order_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    CustomerPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Customer"
+        next_cursor:
+          type: [string, "null"]
+
+    CustomerDetail:
+      allOf:
+        - $ref: "#/components/schemas/Customer"
+        - type: object
+          required: [orders]
+          properties:
+            orders:
+              type: array
+              description: The customer's orders, newest first, up to 50.
+              items:
+                $ref: "#/components/schemas/OrderListRow"
 
     Money:
       type: integer
