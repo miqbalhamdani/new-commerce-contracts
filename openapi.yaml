@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 2.6.0
+  version: 2.7.0
   description: |
     Ecommerce Backoffice v2 — the admin API (`/v1`). The storefront API (`/v1/storefront`) is
     published as its own document, `/v1/storefront/openapi.json`, built by `P1-213`.
@@ -351,10 +351,11 @@ paths:
       operationId: createCategory
       summary: Create a category
       description: |
-        `path` is derived from the name and parent and is never accepted (BR-008, BR-032). A
-        parent must be a live category of the same kind in this tenant, else `422` on
-        `parent_id`. Same-named siblings get distinct labels (BR-035). Requires
-        `categories:write`.
+        `path` is derived from the parent and the label and is never accepted (BR-008,
+        BR-032). `label` defaults to the slugified name; a sent label that a sibling already
+        has is `422` on `label`. A parent must be a live category of the same kind in this
+        tenant, else `422` on `parent_id`. Same-named siblings get distinct derived labels
+        (BR-035). Requires `categories:write`.
       requestBody:
         required: true
         content:
@@ -399,10 +400,10 @@ paths:
           $ref: "#/components/responses/NotFound"
     patch:
       operationId: updateCategory
-      summary: Rename or move a category
+      summary: Rename, relabel or move a category
       description: |
-        A rename or move rewrites every descendant's path in one statement and leaves product
-        links alone (BR-032, BR-033). Moving beneath itself or a descendant is `422` on
+        A rename, relabel or move rewrites every descendant's path in one statement and leaves
+        product links alone (BR-032, BR-033). `label: null` goes back to the derived label. Moving beneath itself or a descendant is `422` on
         `parent_id` (BR-034); `parent_id: null` makes it a root. `kind` cannot change. No
         `If-Match`: last save wins (BR-010). Requires `categories:write`.
       requestBody:
@@ -428,14 +429,14 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
     delete:
       operationId: archiveCategory
-      summary: Archive a category
+      summary: Delete a category
       description: |
-        Archives (BR-012). A category with live children or live products in its subtree is
-        `409 category_in_use`, with `errors` naming `children` and `products` and their counts
-        (BR-036). Requires `categories:write`.
+        Soft-deletes (sets `archived_at`, BR-012) and removes the category from its products,
+        bumping their `version`. A category with live children is `409 category_in_use`, with
+        `errors` naming `children` and its count (BR-036). Requires `categories:write`.
       responses:
         "204":
-          description: Archived.
+          description: Deleted.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1449,7 +1450,7 @@ components:
 
     Category:
       type: object
-      required: [id, kind, name, parent_id, path, archived_at, created_at, updated_at]
+      required: [id, kind, name, label, parent_id, path, archived_at, created_at, updated_at]
       properties:
         id:
           type: string
@@ -1458,12 +1459,17 @@ components:
           $ref: "#/components/schemas/CategoryKind"
         name:
           type: string
+        label:
+          type: [string, "null"]
+          description: |
+            This category's own path segment when the client set one; `null` while it is
+            derived from the name (BR-032).
         parent_id:
           type: [string, "null"]
           format: uuid
         path:
           type: string
-          description: Derived by the database from names and parents; read-only (BR-032).
+          description: Derived by the database from labels and parents; read-only (BR-032).
           examples: ["apparel.outerwear.jackets"]
         archived_at:
           type: [string, "null"]
@@ -1503,6 +1509,10 @@ components:
         name:
           type: string
           minLength: 1
+        label:
+          type: string
+          pattern: "^[a-z0-9]+(_[a-z0-9]+)*$"
+          description: This category's own path segment; defaults to the slugified name (BR-032).
         parent_id:
           type: string
           format: uuid
@@ -1516,6 +1526,10 @@ components:
         name:
           type: string
           minLength: 1
+        label:
+          type: [string, "null"]
+          pattern: "^[a-z0-9]+(_[a-z0-9]+)*$"
+          description: "`null` goes back to the label derived from the name (BR-032)."
         parent_id:
           type: [string, "null"]
           format: uuid
@@ -2451,8 +2465,8 @@ components:
     Conflict:
       description: |
         `version_conflict` when `If-Match` is stale, `duplicate_sku` when a SKU is already taken
-        within the tenant, `category_in_use` when deleting a category that has children or
-        products, or `illegal_transition` when an order status move is not in the allow-list.
+        within the tenant, `category_in_use` when deleting a category that has children,
+        or `illegal_transition` when an order status move is not in the allow-list.
       content:
         application/problem+json:
           schema:

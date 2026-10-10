@@ -25,7 +25,7 @@ the other, in the same commit.
 | Ids | UUID strings (BR-005). Storefront products are addressed by `slug`, orders by `order_number` |
 | Money | A plain integer in minor units: `2000000` is Rp 20.000. Always IDR, so no currency field (BR-006) |
 | Time | RFC 3339 with the WIB offset: `2026-10-06T16:15:00+07:00`. Input must carry an offset, else `422`; a date-only filter means midnight WIB (BR-007) |
-| Server-managed fields | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `*_at` audit stamps: sending one is `422`, on create and update alike. Brand and product slugs are editable (BR-008) |
+| Server-managed fields | `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, `*_at` audit stamps: sending one is `422`, on create and update alike. Brand and product slugs and a category's `label` are editable (BR-008) |
 | Unknown fields | `422 unknown_field`, never ignored. In particular, any price field on a cart or checkout route (BR-089) |
 | Omitted vs `null` | Create: omitted takes the default, `null` is `422`. `PATCH`: omitted is unchanged, `null` clears a nullable field (BR-009) |
 | Concurrency | `If-Match: <version>` on every `PATCH` to products, variants and orders, and on `PUT` variant-matrix; stale → `409 version_conflict` (BR-010) |
@@ -73,7 +73,7 @@ whatever that failure needs.
 | `not_found` | 404 | Not in this tenant (or not this customer's), including other tenants' rows | 011 |
 | `version_conflict` | 409 | Stale `If-Match` | 010 |
 | `duplicate_sku` | 409 | SKU already used in this tenant; `detail` names the product | 039 |
-| `category_in_use` | 409 | Deleting a category with children or products | 036 |
+| `category_in_use` | 409 | Deleting a category with children | 036 |
 | `illegal_transition` | 409 | Order status move not in the allow-list | 070 |
 | `item_unavailable` | 409 | Checkout of a cart holding variants no longer visible | 090 |
 | `shipping_unavailable` | 409 | The chosen courier service is no longer offered for this cart and destination | 121 |
@@ -584,9 +584,13 @@ POST /v1/categories
 { "name": "Jackets", "parent_id": "0192-outerwear", "kind": "category" }
 
 201 Created
-{ "id": "0192…", "kind": "category", "name": "Jackets",
+{ "id": "0192…", "kind": "category", "name": "Jackets", "label": null,
   "parent_id": "0192-outerwear", "path": "apparel.outerwear.jackets",
   "archived_at": null, "created_at": "…", "updated_at": "…" }
+
+POST /v1/categories
+{ "name": "Jackets & Coats", "label": "jackets", "kind": "category" }
+201 Created   ← "label": "jackets", "path": "jackets" (derived would be jackets_coats)
 
 GET /v1/categories/{id}
 200 OK   ← Category plus the counts the move dialog needs:
@@ -594,15 +598,20 @@ GET /v1/categories/{id}
 
 PATCH /v1/categories/{id}
 { "parent_id": "0192-technical-outerwear" }      or   { "name": "Jackets & Coats" }
+{ "label": "coats" }      or   { "label": null }   ← back to the derived segment
 200 OK   ← Category with its new path
 
 DELETE /v1/categories/{id}
-204 No Content
+204 No Content   ← its products lose it
 409 category_in_use
-{ …, "errors": [ { "field": "children", "count": 4 }, { "field": "products", "count": 128 } ] }
+{ …, "errors": [ { "field": "children", "count": 4 } ] }
 ```
 
 - **`path` is read-only.** The database derives it; sending it is `422` (BR-008, BR-032).
+- **`label` is the category's own path segment**, `null` while derived from the name. Pattern
+  `^[a-z0-9]+(_[a-z0-9]+)*$`; a clash with a sibling (archived included) is `422` on `label`.
+- **Delete** is blocked only by live children (BR-036). It removes the category from its products
+  and bumps their `version` (BR-012).
 - A rename or move rewrites every descendant's `path` in one statement and leaves product
   assignments alone (BR-033).
 - Moving a category beneath its own descendant is `422` on `parent_id` (BR-034).

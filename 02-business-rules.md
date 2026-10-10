@@ -105,7 +105,8 @@ instant exact, so the choice of zone is presentation only.
 `id`, `tenant_id`, `version`, `created_at`, `updated_at`, `path`, any `*_at` audit timestamp, and
 derived values are set by the server. A client that sends one gets `422 validation_failed`
 naming the field, **on create and on update alike**. Slugs are the exception: brand and product
-slugs default to a derived value and are editable (BR-030, BR-042).
+slugs and a category's `label` default to a derived value and are editable (BR-030, BR-032,
+BR-042).
 
 *Why:* silently ignoring a field teaches the client that sending it worked. One rule for both
 verbs means there is nothing to remember.
@@ -139,7 +140,9 @@ someone else's row would reveal which ids exist.
 ### BR-012 Deleting catalog data means archiving
 `DELETE` on a brand, category, product or variant sets `archived_at`; the row stays. Deleting a
 brand also clears `brand_id` on every product that carries it, bumping each product's `version`;
-the admin shows a deleted brand nowhere (BR-030). Users are
+the admin shows a deleted brand nowhere (BR-030). Deleting a category removes it from every
+product it is assigned to (the `product_categories` rows go), bumping each product's `version`
+(BR-036). Users are
 disabled (BR-027), API keys are revoked (BR-028). Media is the only thing truly deleted. Orders
 are never deleted (BR-079).
 
@@ -320,8 +323,12 @@ own tree. A product can sit in categories from several trees at once: a jacket c
 *Why:* adding this later means re-tagging the whole catalog by hand.
 
 ### BR-032 The database derives category paths
-`path` (an `ltree`) is computed by a trigger from `name` and `parent_id`. Clients never send it
-(BR-008). Renaming or moving a category rewrites every descendant's `path` in the same statement.
+`path` (an `ltree`) is computed by a trigger from `parent_id` and the category's own segment:
+its `label` when set, else `slugify_label(name)`. Clients never send `path` (BR-008), but may set
+`label` on create or update: lower-case a-z0-9 joined by single underscores. `null` on update
+goes back to the derived segment. A label clashing with a sibling's, archived ones included, is
+`422` on `label`; derived segments are disambiguated instead (BR-035). Renaming, relabelling or
+moving a category rewrites every descendant's `path` in the same statement.
 
 *Why:* the hard case is the move. If application code had to remember to rewrite descendants, one
 write path that forgot would leave a silently broken tree.
@@ -341,9 +348,10 @@ refuses it if forced.
 Two "Jackets" under different parents are fine. Siblings with the same name are allowed too; the
 database disambiguates their path labels (`jackets`, `jackets_1`).
 
-### BR-036 A category in use cannot be deleted
-Deleting a category that has children or assigned products is rejected with
-`409 category_in_use`, and the response says how many children and products are in the way.
+### BR-036 A category with subcategories cannot be deleted
+Deleting a category that has live children is rejected with `409 category_in_use`, and the
+response says how many children are in the way. Assigned products do not block it: deleting
+removes the category from them (BR-012).
 
 ### BR-037 Product lifecycle
 `draft` → `active` → `archived`. New products start as `draft`. Only `draft → active` is gated
