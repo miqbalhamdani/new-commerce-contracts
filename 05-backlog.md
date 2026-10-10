@@ -161,7 +161,7 @@ to work an order the day the first one arrives.
 | P1-103 | Order list API with saved-view filters | BE | 100 | As §5.1; `refund_owed=true` returns exactly the cancelled-paid-unrefunded orders; p95 first byte < 800 ms at 10k orders (BR-075) | review | Iqbal Hamdani |
 | P1-104 | Order detail and `PATCH` while pending | BE | 101 | As §5.2; `PATCH` after `pending` → `422`; totals recomputed; `allowed_transitions` from the allow-list (BR-010, BR-079) | review | Iqbal Hamdani |
 | P1-105 | Manual order entry `POST /v1/orders` | BE | 101 | As §5.4; prices from the catalog; a `unit_price` in the body → `422 unknown_field`; snapshots written (BR-076, BR-078) | review | Iqbal Hamdani |
-| P1-106 | Customer list and detail API | BE | 100 | As §5.5; no credential field ever appears (BR-092) | todo | |
+| P1-106 | Customer list and detail API | BE | 100 | As §5.5; no credential field ever appears (BR-092) | review | Iqbal Hamdani |
 | P1-107 | Order export job | BE | 060, 103 | As §5.6; one row per line; opens cleanly in Excel with Indonesian locale; link regenerates (BR-063, BR-064, BR-065) | todo | |
 | P1-108 | Order list screen with saved views | FE | 103 | The four saved views of `01-product-requirements.md` §6.1; mark-paid from the list | todo | |
 | P1-109 | Order detail screen: actions, ship dialog, refund record, audit trail | FE | 102, 104, 077 | Only `allowed_transitions` are offered; the ship dialog requires courier and tracking (BR-025, BR-072) | todo | |
