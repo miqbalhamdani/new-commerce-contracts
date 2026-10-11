@@ -10,7 +10,7 @@ info:
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
     money, pagination, optimistic concurrency, rate limiting — and only the endpoints whose
-    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes, `P1-103` the order list, `P1-104` order detail, `P1-105` manual orders, `P1-106` customers, `P1-107` order export, `P1-200` API keys, `P1-216` storefront settings, `P1-218` shipping rates.
+    backlog item is done: `P1-011` the three auth paths, `P1-012` roles, `P1-021` brands, `P1-024` categories, `P1-028` products, `P1-029` variants, `P1-060` jobs, `P1-040` the variant matrix, `P1-043` media, `P1-072` bulk, `P1-073` import, `P1-064` users, `P1-071` settings, `P1-077` the audit log, `P1-102` order status routes, `P1-103` the order list, `P1-104` order detail, `P1-105` manual orders, `P1-106` customers, `P1-107` order export, `P1-200` API keys, `P1-216` storefront settings, `P1-218` shipping rates, `P1-221` the Midtrans webhook.
 
     Every other path is added by the backlog item that builds it (`05-backlog.md`). The API repo
     generates a strict server interface from this file, so a path listed here before its handler
@@ -35,7 +35,7 @@ servers:
     description: Local development, against the host services from `P1-000`.
 
 # Every admin endpoint requires a staff bearer token unless it opts out with `security: []`.
-# The unauthenticated ones are login, refresh and accept-invite. Storefront credentials live in
+# The unauthenticated ones are login, refresh, accept-invite and the Midtrans webhook. Storefront credentials live in
 # storefront.yaml, the storefront's own document.
 security:
   - bearerAuth: []
@@ -1376,6 +1376,52 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "502":
           $ref: "#/components/responses/BadGateway"
+
+  /webhooks/midtrans/{webhook_id}:
+    parameters:
+      - name: webhook_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: midtransNotification
+      summary: Midtrans reports a payment
+      description: |
+        Called by Midtrans, never by a person: no token, no API key, no CORS (§11.10). The
+        `webhook_id` names the shop; the notification is trusted only once its `signature_key`
+        verifies with that shop's server key, and what it says is confirmed with Midtrans' Get
+        Status API before anything changes (BR-003, BR-124).
+
+        - Unknown `webhook_id`: `404`. Bad signature: `401`, nothing changes.
+        - Get Status not answering: `503`, so Midtrans retries.
+        - Otherwise `200`, whether or not anything changed: a replay, an unknown order id, or a
+          status that changes nothing are all answered `200` (BR-125).
+        - `settlement`, or `capture` with `fraud_status` `accept`, pays the attempt and moves a
+          pending order to `paid` (BR-074). An amount other than the attempt's is
+          `amount_mismatch`, flagged for an operator, and never pays. `expire`, `cancel` and
+          `deny` fail the attempt; the order stays `pending`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MidtransNotification"
+      responses:
+        "200":
+          description: Received.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Midtrans' Get Status API did not answer; Midtrans retries.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 
   /orders:
     get:
@@ -3324,6 +3370,31 @@ components:
         note:
           type: string
           description: Recorded in the audit row only (BR-075).
+
+    MidtransNotification:
+      type: object
+      description: |
+        Midtrans' HTTP notification. Only the fields the API reads are listed; Midtrans sends more,
+        and they are kept, not refused — this body is Midtrans', not a client's.
+      required: [order_id, status_code, gross_amount, signature_key]
+      additionalProperties: true
+      properties:
+        order_id:
+          type: string
+          examples: ["ERG-000123"]
+        status_code:
+          type: string
+          examples: ["200"]
+        gross_amount:
+          type: string
+          examples: ["409000.00"]
+        signature_key:
+          type: string
+        transaction_status:
+          type: string
+          examples: ["settlement"]
+        fraud_status:
+          type: string
 
     ShippingRatesRequest:
       type: object

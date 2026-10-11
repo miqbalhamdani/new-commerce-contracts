@@ -80,7 +80,7 @@ whatever that failure needs.
 | `rate_limited` | 429 | Over the limit; `Retry-After` and `RateLimit-*` headers | 014 |
 | `channel_unavailable` | 502 | Marketplace API failed during connect | 102 |
 | `shipping_rates_unavailable` | 502 | Biteship failed or timed out | 121 |
-| `payment_unavailable` | 502 | Midtrans failed to create a Snap transaction; the order exists and payment can be retried | 126 |
+| `payment_unavailable` | 502 | Midtrans failed to create a Snap transaction; the order exists and payment can be retried. `503` on the notification webhook when Get Status does not answer, so Midtrans retries | 124, 126 |
 | `internal` | 500 | Anything unexpected. `detail` is deliberately generic; `trace_id` is the lead | 011 |
 
 ### 1.2 Rate limits
