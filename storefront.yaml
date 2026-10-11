@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce Storefront API
-  version: 0.7.0
+  version: 0.8.0
   description: |
     The API a shop's own website is built on (`/v1/storefront`, `04-api-spec.md` §11). It is a
     separate document from the admin `openapi.yaml`, and the two share nothing by reference: a
@@ -651,6 +651,45 @@ paths:
           $ref: "#/components/responses/InvalidApiKey"
         "403":
           $ref: "#/components/responses/OriginNotAllowed"
+
+  /orders/{order_number}/payment:
+    parameters:
+      - $ref: "#/components/parameters/OrderNumber"
+    post:
+      operationId: payAgain
+      summary: A link to pay a pending Midtrans order
+      description: |
+        For the shopper whose order it is: a signed-in customer for their own order, or a guest
+        with its `X-Order-Token` (BR-126). The live link is returned if there is one; otherwise a
+        new attempt is made (`ERG-000123-2`, …) for the order's total as it is now (BR-123).
+        Asking twice at once gets one link.
+
+        Only a `pending` Midtrans order has a payment to make: anything else is `422`. Another
+        customer's order is `404`; a guest with a missing or wrong token, or an unknown order
+        number, is `401 customer_auth_required`. Midtrans not answering is
+        `502 payment_unavailable`; ask again shortly.
+      security:
+        - apiKey: []
+          customerBearer: []
+        - apiKey: []
+          orderToken: []
+      responses:
+        "200":
+          description: The link to pay at.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "502":
+          $ref: "#/components/responses/BadGateway"
 
 components:
 
