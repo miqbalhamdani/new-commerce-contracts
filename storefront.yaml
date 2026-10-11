@@ -428,6 +428,45 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
+  /auth/google:
+    post:
+      operationId: googleSignIn
+      summary: Sign in with Google
+      description: |
+        `id_token` is the credential Google Identity Services gives the website, for the shop's own
+        `google_client_id` (`/config`). Its signature, issuer, audience, expiry and
+        `email_verified` are checked; any failure is `401 unauthenticated`. A shop without a
+        client ID is `422` (BR-127).
+
+        The customer is the one this Google account signed in as before; else the account with
+        the same verified email, which the Google login is then linked to; else a new customer
+        with no password, answered `201`. One Google account is one customer per shop.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleSignIn"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tokens"
+        "201":
+          description: Signed in as a new customer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tokens"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
   /auth/refresh:
     post:
       operationId: refresh
@@ -1186,6 +1225,14 @@ components:
         email:
           type: string
         password:
+          type: string
+
+    GoogleSignIn:
+      type: object
+      required: [id_token]
+      additionalProperties: false
+      properties:
+        id_token:
           type: string
 
     RefreshRequest:
