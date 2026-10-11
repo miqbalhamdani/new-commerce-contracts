@@ -1,0 +1,180 @@
+openapi: 3.1.0
+
+info:
+  title: New Commerce Storefront API
+  version: 0.1.0
+  description: |
+    The API a shop's own website is built on (`/v1/storefront`, `04-api-spec.md` §11). It is a
+    separate document from the admin `openapi.yaml`, and the two share nothing by reference: a
+    storefront developer reads this file alone, and the API generates the storefront server from
+    it into its own package, which never imports the admin one (P1-202).
+
+    **This file grows with the backlog**, as `openapi.yaml` does: a path appears when the item
+    that builds it is done (`05-backlog.md`, Phase 3). `P1-213` publishes it at
+    `/v1/storefront/openapi.json` with a docs page, and checks that every §11.3 route is here.
+
+    ## Credentials (BR-082)
+
+    Every request carries `X-Api-Key`. Personal data also needs a customer token
+    (`Authorization: Bearer`) or, for a guest's order, `X-Order-Token`. A staff token is never
+    accepted here (BR-086).
+
+    ## Browser and server (BR-083)
+
+    A request with an `Origin` header must come from the key's `allowed_origin`, else
+    `403 origin_not_allowed` with no `Access-Control-Allow-Origin`. Responses echo the matched
+    origin (never `*`) and carry `Vary: Origin`. A request with no `Origin` — the website's own
+    server — is accepted. A preflight `OPTIONS` needs no key and is answered for any origin.
+
+    ## Conventions
+
+    The admin API's conventions hold here (`04-api-spec.md` §1): money is an integer of minor
+    units, times are RFC 3339 in `+07:00`, errors are RFC 9457 `application/problem+json` with
+    a `trace_id`, a field the route does not define is `422 unknown_field` — a price field on a
+    cart or checkout route above all (BR-089) — and lists are cursor-paginated.
+
+servers:
+  - url: https://api.{domain}/v1/storefront
+    description: Production. The domain is still undecided — see `05-backlog.md`, `P1-001`.
+    variables:
+      domain:
+        default: example.com
+  - url: http://localhost:8080/v1/storefront
+    description: Local development.
+
+security:
+  - apiKey: []
+
+paths: {}
+
+components:
+
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: |
+        One kind of key, `sf_live_…`, made in the admin (Settings › API keys). Browser requests
+        must come from the key's `allowed_origin`; server requests (no `Origin`) are accepted.
+        The tenant comes from the key, and nothing in a request can choose another (BR-003,
+        BR-028, BR-083). A revoked key stops working within 60 s (BR-085). Missing, unknown or
+        revoked is `401 invalid_api_key`.
+
+    customerBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        A 15-minute customer access token (`aud = storefront`) from sign-in, sent alongside
+        `X-Api-Key`. Its shop must be the key's shop, else `401 customer_auth_required`
+        (BR-086, BR-093).
+
+    orderToken:
+      type: apiKey
+      in: header
+      name: X-Order-Token
+      description: |
+        The guest order token a checkout returns; it opens exactly that one order (BR-091).
+
+  schemas:
+
+    ErrorCode:
+      type: string
+      description: |
+        The error codes this API returns, a subset of `04-api-spec.md` §1.1. The code is the last
+        segment of a `Problem.type` URI.
+      enum:
+        - validation_failed
+        - unknown_field
+        - empty_cart
+        - unauthenticated
+        - invalid_api_key
+        - customer_auth_required
+        - origin_not_allowed
+        - not_found
+        - item_unavailable
+        - shipping_unavailable
+        - rate_limited
+        - shipping_rates_unavailable
+        - payment_unavailable
+        - internal
+
+    ProblemError:
+      type: object
+      description: |
+        One field-level detail inside a `Problem`. An unavailable cart item, for instance, carries
+        `variant_id`, `sku` and `title`, so extra properties are permitted by design.
+      required: [field]
+      properties:
+        field:
+          type: string
+          examples: ["items"]
+        detail:
+          type: string
+      additionalProperties: true
+
+    Problem:
+      type: object
+      description: |
+        RFC 9457 `application/problem+json`. Every error response uses it. `trace_id` is the
+        OpenTelemetry trace id; quote it when reporting a problem.
+      required: [type, title, status, trace_id]
+      properties:
+        type:
+          type: string
+          format: uri
+          examples: ["https://docs.example.com/errors/item_unavailable"]
+        title:
+          type: string
+          examples: ["Item unavailable"]
+        status:
+          type: integer
+          examples: [409]
+        detail:
+          type: string
+        instance:
+          type: string
+        trace_id:
+          type: string
+          examples: ["4bf92f3577b34da6a3ce929d0e0e4736"]
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProblemError"
+
+  responses:
+
+    InvalidApiKey:
+      description: |
+        `invalid_api_key`: `X-Api-Key` is missing, unknown or revoked. `customer_auth_required`:
+        a customer or order token is missing, invalid, expired or for another shop.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    OriginNotAllowed:
+      description: |
+        `origin_not_allowed`: the request's `Origin` is not the key's `allowed_origin`. Sent
+        without `Access-Control-Allow-Origin`, so a browser hides it from the page (BR-083).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    NotFound:
+      description: No such resource in this shop.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    UnprocessableEntity:
+      description: |
+        Validation failed, or the body has a field the route does not define
+        (`unknown_field`, BR-089).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"

@@ -4,8 +4,8 @@ info:
   title: New Commerce API
   version: 2.8.0
   description: |
-    Ecommerce Backoffice v2 — the admin API (`/v1`). The storefront API (`/v1/storefront`) is
-    published as its own document, `/v1/storefront/openapi.json`, built by `P1-213`.
+    Ecommerce Backoffice v2 — the admin API (`/v1`). The storefront API (`/v1/storefront`) is its
+    own document, `storefront.yaml`, published at `/v1/storefront/openapi.json` by `P1-213`.
 
     **This file is a skeleton plus the paths already built.** It carries the conventions from
     `04-api-spec.md` §1 that every endpoint depends on — authentication, the error envelope,
@@ -35,7 +35,8 @@ servers:
     description: Local development, against the host services from `P1-000`.
 
 # Every admin endpoint requires a staff bearer token unless it opts out with `security: []`.
-# The unauthenticated ones are login, refresh and accept-invite. Storefront security schemes are declared below for the storefront document.
+# The unauthenticated ones are login, refresh and accept-invite. Storefront credentials live in
+# storefront.yaml, the storefront's own document.
 security:
   - bearerAuth: []
 
@@ -1736,31 +1737,6 @@ components:
         The tenant is derived from the token and is **never** read from a header, query parameter
         or request body — accepting it from the request would be a trivial cross-tenant
         escalation (BR-003).
-
-    apiKey:
-      type: apiKey
-      in: header
-      name: X-Api-Key
-      description: |
-        Storefront only. One kind of key, `sf_live_…`. Browser requests must come from the key's
-        `allowed_origin`; server requests (no `Origin`) are accepted. The tenant comes from
-        the key (BR-028, BR-083).
-
-    customerBearer:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: |
-        Storefront only. A 15-minute customer JWT (`aud = storefront`, `tid` must match the API
-        key's tenant), sent alongside `X-Api-Key` (BR-086, BR-093).
-
-    orderToken:
-      type: apiKey
-      in: header
-      name: X-Order-Token
-      description: |
-        Storefront only. The HMAC guest order token returned by checkout; opens exactly one order
-        (BR-091).
 
   parameters:
 
