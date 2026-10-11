@@ -276,6 +276,41 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
+  /carts/{cart_id}/shipping-rates:
+    parameters:
+      - $ref: "#/components/parameters/CartId"
+    post:
+      operationId: cartShippingRates
+      summary: What shipping the cart to a postal code costs
+      description: |
+        Quoted by Biteship from the shop's origin, for the couriers it offers, over the cart's
+        available items (BR-120). A quote holds for 10 minutes: checkout within that window charges
+        the same price (BR-121). A shop that has not set its origin or couriers gets no options.
+        An empty cart is `422 empty_cart`; Biteship down is `502 shipping_rates_unavailable`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShippingRatesRequest"
+      responses:
+        "200":
+          description: The options, cheapest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShippingQuote"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
   /carts/{cart_id}/checkout:
     parameters:
       - $ref: "#/components/parameters/CartId"
@@ -1330,6 +1365,48 @@ components:
           format: uri
           examples: ["https://app.midtrans.com/snap/snap.js"]
 
+    ShippingRatesRequest:
+      type: object
+      required: [destination_postal_code]
+      additionalProperties: false
+      properties:
+        destination_postal_code:
+          type: string
+          pattern: "^[0-9]{5}$"
+
+    ShippingOption:
+      type: object
+      required: [courier_code, courier_service_code, courier_name, service_name, price, duration]
+      properties:
+        courier_code:
+          type: string
+          examples: ["jne"]
+        courier_service_code:
+          type: string
+          examples: ["reg"]
+        courier_name:
+          type: string
+          examples: ["JNE"]
+        service_name:
+          type: string
+          examples: ["Reguler"]
+        price:
+          $ref: "#/components/schemas/Money"
+        duration:
+          type: string
+          examples: ["2 - 3 days"]
+
+    ShippingQuote:
+      type: object
+      required: [weight_grams, options]
+      properties:
+        weight_grams:
+          type: integer
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShippingOption"
+
     ErrorCode:
       type: string
       description: |
@@ -1425,6 +1502,15 @@ components:
       description: |
         `item_unavailable`: an item in the cart can no longer be bought; `errors` names each one
         with `variant_id`, `sku` and `title` (BR-090).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    BadGateway:
+      description: |
+        `shipping_rates_unavailable` or `payment_unavailable`: Biteship or Midtrans did not answer.
+        Try again shortly.
       content:
         application/problem+json:
           schema:

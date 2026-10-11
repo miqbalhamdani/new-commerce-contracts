@@ -503,8 +503,8 @@ POST /v1/orders
 Line prices come from `variant_price()` exactly as checkout does (BR-046, BR-078); a `unit_price` in the request
 is `422 unknown_field`. Archived variants are `422` naming the line. `source` must be `manual`.
 Send either `shipping` (a typed amount) or `shipping_option` (a courier choice, quoted like
-checkout, BR-121), not both. `shipping_option` and the rates route below arrive with `P1-218`
-(Phase 3); until then a manual order takes only the typed `shipping` amount.
+checkout, BR-121), not both; with neither, shipping is `0`. A courier service the fresh quote no
+longer offers is `409 shipping_unavailable`, and Biteship down is `502 shipping_rates_unavailable`.
 Manual orders are always `bank_transfer`. The order's `subtotal` is Σ qty·unit_price before any
 discount and its `discount` is the summed line discounts, so `total = subtotal + shipping -
 discount` holds by construction (BR-078).
@@ -1256,7 +1256,10 @@ POST /v1/storefront/carts/{cart_id}/shipping-rates
 - Quoted by Biteship for the shop's origin and enabled couriers, over the cart's available items
   (BR-120). Quotes are cached 10 minutes; checkout within that window charges the same price
   (BR-121).
-- Biteship down → `502 shipping_rates_unavailable`. An empty cart → `422 empty_cart`.
+- Biteship down → `502 shipping_rates_unavailable`. An empty cart → `422 empty_cart`. A shop that
+  has not set its origin or couriers gets `options: []`.
+- Prices come back from Biteship in whole rupiah and go out in minor units, like every amount
+  here (BR-006). The quote is for the available items' total weight, as one parcel.
 
 ### 11.7 Checkout
 
