@@ -185,7 +185,7 @@ order; a minimal reference website built from the public docs alone goes product
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
 | P1-200 | API key API: create, list, edit origins, revoke | BE | 019, 018 | As §4; plaintext returned once; missing or malformed `allowed_origin` → `422`; it must be exact `scheme://host[:port]` (BR-028, BR-083) | review | Iqbal Hamdani |
-| P1-201 | API keys screen | FE | 200 | Copy-once UI with an explicit warning; link to the storefront docs (BR-028) | todo | |
+| P1-201 | API keys screen | FE | 200 | Copy-once UI with an explicit warning; link to the storefront docs (BR-028) | review | Iqbal Hamdani |
 | P1-202 | Storefront route tree + key middleware | BE | 019, 015 | As §11.2: `invalid_api_key`; browser request from a foreign origin → `origin_not_allowed` without ACAO; same key with no `Origin` accepted; preflight for any origin; revoked key dead within 60 s; storefront and admin packages do not import each other (BR-003, BR-083, BR-085) | review | Iqbal Hamdani |
 | P1-203 | Storefront views + catalog routes | BE | 202, 030, 044 | As §11.4; handlers query only the views; draft and archived products never appear; p95 < 300 ms ; `price` is the effective price and `on_sale` is set while a sale is active (BR-046, BR-080, BR-081) | review | Iqbal Hamdani |
 | P1-204 | `carts`, `cart_items`, `orders.cart_id`; cart routes | BE | 203, 100 | As §11.5 and `03-erd.md` §3.5; cart id is v4; prices never stored; `price` field → `422 unknown_field` (BR-005, BR-087, BR-089) | review | Iqbal Hamdani |
@@ -212,6 +212,23 @@ order; a minimal reference website built from the public docs alone goes product
 | P1-214 | Nightly retention job | BE | 204, 206 | Expired open carts and expired or revoked sessions deleted; checked-out carts kept (BR-096) | todo | |
 | P1-215 | Customer PII purge job | BE | 206, 060 | Purges one customer's PII from `customers`, `customer_identities`, `orders.customer`, `orders.shipping_address`; catalog untouched; audited (BR-097) | todo | |
 | P1-212 | Reference website from the public docs alone | FE | 213, 222, 223 | A throwaway site outside `new-commerce-web`, using only the docs and an API key: product → cart → shipping choice → guest checkout paid with Midtrans sandbox → order lookup, and Google sign-in → order history | todo | |
+
+> **Phase 3 is delivered in three slices** (decided 11 Oct 2026): 3a is P1-200…P1-208, 3b is
+> P1-227…P1-229 (encryption, storefront settings, shipping, Midtrans, Google, order emails), and 3c
+> is P1-209…P1-212. Each slice is reviewed and merged before the next starts.
+>
+> **Until 3b, checkout is bank transfer only** (P1-205): no `shipping_option` and a shipping amount
+> of `0` until P1-219, and `midtrans` refused until P1-216 and P1-220. `storefront.yaml` says so
+> on the route.
+>
+> **Keys held in env until a KMS exists** (decided 11 Oct 2026): the guest order-token key
+> (`ORDER_TOKEN_SECRET`, BR-091), the reset-link key (`PASSWORD_RESET_SECRET`, BR-094) and, with
+> P1-227, the envelope-encryption key are env secrets, required outside development. Moving them
+> into a managed KMS changes no contract.
+>
+> **Midtrans, Biteship and Google are built against fakes** of their APIs (decided 11 Oct 2026).
+> Live use waits for the owner's sandbox credentials, with cutover steps noted on each item; P1-212
+> is blocked until they exist.
 
 ---
 
