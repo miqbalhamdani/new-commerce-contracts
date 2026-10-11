@@ -184,7 +184,7 @@ order; a minimal reference website built from the public docs alone goes product
 
 | ID | Item | Repo | Depends | Acceptance | Status | Owner |
 |---|---|---|---|---|---|---|
-| P1-200 | API key API: create, list, edit origins, revoke | BE | 019, 018 | As §4; plaintext returned once; missing or malformed `allowed_origin` → `422`; it must be exact `scheme://host[:port]` (BR-028, BR-083) | todo | |
+| P1-200 | API key API: create, list, edit origins, revoke | BE | 019, 018 | As §4; plaintext returned once; missing or malformed `allowed_origin` → `422`; it must be exact `scheme://host[:port]` (BR-028, BR-083) | review | Iqbal Hamdani |
 | P1-201 | API keys screen | FE | 200 | Copy-once UI with an explicit warning; link to the storefront docs (BR-028) | todo | |
 | P1-202 | Storefront route tree + key middleware | BE | 019, 015 | As §11.2: `invalid_api_key`; browser request from a foreign origin → `origin_not_allowed` without ACAO; same key with no `Origin` accepted; preflight for any origin; revoked key dead within 60 s; storefront and admin packages do not import each other (BR-003, BR-083, BR-085) | todo | |
 | P1-203 | Storefront views + catalog routes | BE | 202, 030, 044 | As §11.4; handlers query only the views; draft and archived products never appear; p95 < 300 ms ; `price` is the effective price and `on_sale` is set while a sale is active (BR-046, BR-080, BR-081) | todo | |

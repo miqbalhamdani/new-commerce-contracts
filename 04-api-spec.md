@@ -339,15 +339,17 @@ GET /v1/api-keys
 { "data": [ …same shape without "key"… ] }    ← unpaginated; revoked keys are not listed
 
 PATCH /v1/api-keys/{id}
-{ "allowed_origin": "https://shop.tokoabc.com" }
-200 OK   ← ApiKey without "key"
+{ "allowed_origin": "https://shop.tokoabc.com" }      ← name and/or allowed_origin
+200 OK   ← ApiKey without "key"; a revoked key is 404
 
 DELETE /v1/api-keys/{id}
-204 No Content   ← revokes; stops working within 60 s (BR-085)
+204 No Content   ← revokes; stops working within 60 s (BR-085); already revoked is 404
 ```
 
 - `allowed_origin` is required: one exact `scheme://host[:port]`, no path, no wildcard, no
-  trailing slash; anything else is `422` (BR-028, BR-083).
+  trailing slash; anything else is `422` (BR-028, BR-083). It must be the form a browser sends
+  in `Origin` — lower case, no userinfo, no default port (`:443` on https, `:80` on http) — or
+  it could never match.
 - A website on two origins (`tokoabc.com` and `www.tokoabc.com`), or a staging site, needs one
   key per origin.
 
