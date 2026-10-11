@@ -469,7 +469,9 @@ CREATE TABLE storefront_settings (
     midtrans_enabled       boolean NOT NULL DEFAULT false,
     midtrans_environment   text CHECK (midtrans_environment IN ('sandbox','production')),
     midtrans_client_key    text,                  -- public by design (Snap.js)
-    midtrans_server_key    bytea,                 -- envelope-encrypted, never returned (BR-129)
+    -- Envelope-encrypted, never returned (BR-129): version, key id, wrapped data key, then the
+    -- AES-256-GCM value, with the tenant id as additional data so it opens for this shop only.
+    midtrans_server_key    bytea,
     -- Opaque id in the notification URL; how a webhook finds its tenant (BR-003).
     midtrans_webhook_id    uuid NOT NULL UNIQUE,
     updated_at             timestamptz NOT NULL DEFAULT now(),
@@ -478,13 +480,21 @@ CREATE TABLE storefront_settings (
     CHECK (bank_transfer_enabled OR midtrans_enabled)
 );
 
+-- One row per shop, from the start: the migration that creates the table fills it for every
+-- existing shop, and the admin routes create a missing one. midtrans_webhook_id is a random v4,
+-- like carts.id, because it sits in a URL anyone with the Midtrans dashboard can see.
+
 -- BR-003. The one pre-tenant query on the Midtrans webhook path. The caller
 -- trusts tenant_id only after the signature verifies with this key (BR-124).
+-- Owned by auth_lookup, like resolve_api_key, so FORCE RLS does not bind it.
+-- It matches any shop with a server key, not only one with Midtrans on: a
+-- payment made before the owner switched Midtrans off still settles.
 CREATE FUNCTION resolve_midtrans_webhook(p_webhook_id uuid)
 RETURNS TABLE (tenant_id uuid, midtrans_environment text, midtrans_server_key bytea)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT tenant_id, midtrans_environment, midtrans_server_key
-    FROM storefront_settings WHERE midtrans_webhook_id = p_webhook_id AND midtrans_enabled;
+    FROM storefront_settings
+   WHERE midtrans_webhook_id = p_webhook_id AND midtrans_server_key IS NOT NULL;
 $$;
 
 -- A shopper on one tenant's website. The same email at two shops is two

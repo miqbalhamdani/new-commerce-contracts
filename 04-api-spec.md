@@ -270,7 +270,9 @@ PATCH /v1/storefront-settings
 200 OK   ← same body as GET
 ```
 
-- `midtrans_server_key` is write-only: accepted on `PATCH`, never in a response.
+- Every shop has a row from the start, with bank transfer on and Midtrans off.
+- `midtrans_server_key` is write-only: accepted on `PATCH`, never in a response. `null` removes it,
+  which needs Midtrans off.
 - Enabling `midtrans` without environment, client key and server key set is `422`. Turning off
   both payment methods is `422` (BR-122).
 - `origin_postal_code` is 5 digits; `shipping_couriers` must be Biteship courier codes. Shipping
