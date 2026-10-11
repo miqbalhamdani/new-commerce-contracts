@@ -339,15 +339,17 @@ GET /v1/api-keys
 { "data": [ …same shape without "key"… ] }    ← unpaginated; revoked keys are not listed
 
 PATCH /v1/api-keys/{id}
-{ "allowed_origin": "https://shop.tokoabc.com" }
-200 OK   ← ApiKey without "key"
+{ "allowed_origin": "https://shop.tokoabc.com" }      ← name and/or allowed_origin
+200 OK   ← ApiKey without "key"; a revoked key is 404
 
 DELETE /v1/api-keys/{id}
-204 No Content   ← revokes; stops working within 60 s (BR-085)
+204 No Content   ← revokes; stops working within 60 s (BR-085); already revoked is 404
 ```
 
 - `allowed_origin` is required: one exact `scheme://host[:port]`, no path, no wildcard, no
-  trailing slash; anything else is `422` (BR-028, BR-083).
+  trailing slash; anything else is `422` (BR-028, BR-083). It must be the form a browser sends
+  in `Origin` — lower case, no userinfo, no default port (`:443` on https, `:80` on http) — or
+  it could never match.
 - A website on two origins (`tokoabc.com` and `www.tokoabc.com`), or a staging site, needs one
   key per origin.
 
@@ -1067,7 +1069,8 @@ DELETE /v1/channel-listings/{id}
 ## 11. Storefront API (M3)
 
 This is the API owners' websites are built on, so it is the part outside developers read. It is
-published as its own OpenAPI document at `/v1/storefront/openapi.json`, separate from the admin one.
+published as its own OpenAPI document at `/v1/storefront/openapi.json`, separate from the admin one;
+its source is `storefront.yaml` in this repo, which grows a path per backlog item as `openapi.yaml` does.
 Storefront routes never accept a staff token (BR-086).
 
 ### 11.1 Credentials
@@ -1221,10 +1224,14 @@ GET /v1/storefront/carts/{cart_id}
   "expires_at": "2026-11-05T16:15:00+07:00" }
 ```
 
+- `item_count` is the total quantity of every item; `subtotal` counts available items only. An
+  unavailable item has `unit_price` and `line_total` of `null`: it has no price a shopper can pay.
 - An unknown, expired or checked-out cart id is `404`.
 - Adding a variant that is not visible is `422` on `variant_id`. A variant that becomes unavailable
   while in the cart stays listed with `"available": false` so the website can tell the shopper.
-- `qty` outside 0–999 is `422`. A `price` field anywhere is `422 unknown_field` (BR-089).
+- `qty` outside 0–999 is `422`. A `price` field anywhere is `422 unknown_field` (BR-089). `0`
+  removes an item even when its variant is no longer visible, so a shopper can always clear one.
+- Every change moves `expires_at` to 30 days out (BR-087); reading the cart does not.
 - With a customer token, the cart is attached to that customer (BR-095).
 
 ### 11.6 Shipping rates
@@ -1359,8 +1366,9 @@ POST /v1/storefront/auth/password-reset/confirm
   `email_verified` are checked; any failure is `401 unauthenticated`. A shop without a client ID
   answers `422`. A Google sign-in with the verified email of an existing account links the
   Google login to it, recorded in `customer_identities` (BR-127).
-- `reset_url` must start with the key's `allowed_origin`; the
-  emailed link is `reset_url?token=…`, valid 30 minutes.
+- `reset_url`'s origin must be exactly the key's `allowed_origin` — compared parsed, not as a
+  prefix, which `https://tokoabc.com.evil.example` would pass; the emailed link is
+  `reset_url?token=…`, valid 30 minutes.
 
 ### 11.9 Me and order history
 
@@ -1394,7 +1402,10 @@ GET /v1/storefront/orders/ERG-000123          X-Order-Token: q7Zr…
 
 - `/me/orders/{order_number}` for another customer's order is `404` (BR-011).
 - The guest route with a missing or wrong token is `401 customer_auth_required`; a token for one
-  order never opens another (BR-091).
+  order never opens another (BR-091). An order number that does not exist is the same `401`:
+  numbers are sequential, and a `404` would let anyone list them.
+- `payment_status` is `null` for bank transfer; Midtrans fills it from its payment attempts
+  (`P1-220`).
 
 ### 11.10 Payments
 

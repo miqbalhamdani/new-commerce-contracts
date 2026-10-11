@@ -1,6 +1,6 @@
 # Ecommerce Backoffice v2 · Data Model
 
-**24 tables, 2 views.** Constraints are tagged with the rule they enforce (`BR-xxx`, see
+**24 tables, 3 views.** Constraints are tagged with the rule they enforce (`BR-xxx`, see
 `02-business-rules.md`). The API contract is `04-api-spec.md`; which backlog item builds which
 table is `05-backlog.md`. Migrations in `new-commerce-api/db/migrations/` must match this file;
 if they disagree, the migration is the bug.
@@ -524,6 +524,11 @@ CREATE TABLE customer_identities (
         FOREIGN KEY (customer_id, tenant_id) REFERENCES customers (id, tenant_id) ON DELETE CASCADE
 );
 
+-- Password reset links have no table (BR-094). The token is signed and expiring, like an
+-- invitation's (BR-026), and the customer's current password_hash is part of what is signed:
+-- setting a password, with the link or any other way, changes the hash, so a used link stops
+-- verifying. That is what makes it single use, a Google-only customer's NULL hash included.
+
 -- One row per signed-in device. The refresh token rotates on every use (BR-093).
 CREATE TABLE customer_sessions (
     id                 uuid PRIMARY KEY,
@@ -823,8 +828,25 @@ JOIN storefront_products sp ON sp.id = v.product_id
 WHERE v.archived_at IS NULL;
 ```
 
+A cart can hold a variant that has since gone out of view (BR-090), and the shopper still needs
+to see what it was. The labels view names every variant, visible or not, with only what a shopper
+saw when they added it and whether it can still be bought. Catalog queries never use it.
+
+```sql
+CREATE VIEW storefront_variant_labels WITH (security_invoker = true) AS
+SELECT v.id, v.tenant_id, v.sku, v.option_values,
+       p.title AS product_title, p.slug AS product_slug,
+       (v.archived_at IS NULL AND p.status = 'active' AND p.archived_at IS NULL) AS available
+FROM variants v
+JOIN products p ON p.id = v.product_id;
+```
+
 Brands, categories and product media hold nothing private and are read directly, with archived
-rows filtered in the query.
+rows filtered in the query. A product image tied to a variant the views do not show is returned
+with `variant_id = null`, so no hidden variant's id escapes (BR-081).
+
+The catalog list shows only products with at least one visible variant: a product whose variants
+are all archived has no price to show or sort by. Its detail page still answers, with no variants.
 
 ---
 
