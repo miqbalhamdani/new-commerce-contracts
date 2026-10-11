@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce Storefront API
-  version: 0.6.0
+  version: 0.7.0
   description: |
     The API a shop's own website is built on (`/v1/storefront`, `04-api-spec.md` §11). It is a
     separate document from the admin `openapi.yaml`, and the two share nothing by reference: a
@@ -174,6 +174,9 @@ paths:
         No body. The `cart_id` is a random UUID and is the cart's only credential: whoever holds
         it can read and change the cart, so the website keeps it as it would a session (BR-087).
         An open cart expires 30 days after its last change.
+
+        With a customer token, on this or any cart route, the cart becomes that customer's if it
+        is nobody's yet, so a cart started as a guest follows the shopper after sign-in (BR-095).
       responses:
         "201":
           description: The new, empty cart.
@@ -462,6 +465,127 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
+  /me:
+    get:
+      operationId: getMe
+      summary: The signed-in customer
+      security:
+        - apiKey: []
+          customerBearer: []
+      responses:
+        "200":
+          description: The customer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+    patch:
+      operationId: updateMe
+      summary: Change the signed-in customer's name or phone
+      description: |
+        Send only what changes (BR-009): `phone: null` clears it, `name` cannot be null. The email
+        cannot be changed in v2.
+      security:
+        - apiKey: []
+          customerBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeUpdate"
+      responses:
+        "200":
+          description: The customer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /me/orders:
+    get:
+      operationId: listMyOrders
+      summary: The signed-in customer's orders, newest first
+      security:
+        - apiKey: []
+          customerBearer: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyOrderPage"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /me/orders/{order_number}:
+    parameters:
+      - $ref: "#/components/parameters/OrderNumber"
+    get:
+      operationId: getMyOrder
+      summary: One of the signed-in customer's orders
+      description: Another customer's order is `404`, the same as one that does not exist (BR-011).
+      security:
+        - apiKey: []
+          customerBearer: []
+      responses:
+        "200":
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerOrder"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /orders/{order_number}:
+    parameters:
+      - $ref: "#/components/parameters/OrderNumber"
+    get:
+      operationId: getGuestOrder
+      summary: A guest's order, with its order token
+      description: |
+        Send the `order_token` checkout returned as `X-Order-Token`. A missing or wrong token is
+        `401 customer_auth_required`, and so is an order number that does not exist: order
+        numbers are sequential, so telling the two apart would let anyone list them. A token
+        opens only its own order (BR-091).
+      security:
+        - apiKey: []
+          orderToken: []
+      responses:
+        "200":
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerOrder"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+
 components:
 
   securitySchemes:
@@ -513,6 +637,14 @@ components:
       schema:
         type: string
         format: uuid
+
+    OrderNumber:
+      name: order_number
+      in: path
+      required: true
+      schema:
+        type: string
+        examples: ["ERG-000123"]
 
     Cursor:
       name: cursor
@@ -827,7 +959,11 @@ components:
 
     CheckoutRequest:
       type: object
-      required: [contact, shipping_address, payment_method]
+      description: |
+        `contact` is required for a guest. With a customer token it may be left out, and the
+        customer's own name, email and phone are used; the order goes into their history
+        (BR-095).
+      required: [shipping_address, payment_method]
       additionalProperties: false
       properties:
         contact:
@@ -1004,6 +1140,139 @@ components:
         password:
           type: string
           minLength: 8
+
+    Me:
+      type: object
+      required: [id, email, name, phone, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        phone:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+
+    MeUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        phone:
+          type: [string, "null"]
+
+    MyOrderRow:
+      type: object
+      required: [order_number, status, total, item_count, placed_at]
+      properties:
+        order_number:
+          type: string
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        total:
+          $ref: "#/components/schemas/Money"
+        item_count:
+          description: The total quantity of every line.
+          type: integer
+        placed_at:
+          type: string
+          format: date-time
+
+    MyOrderPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/MyOrderRow"
+        next_cursor:
+          type: [string, "null"]
+
+    OrderStatus:
+      type: string
+      enum: [pending, paid, processing, shipped, completed, cancelled]
+
+    PaymentStatus:
+      type: string
+      enum: [pending, paid, failed]
+
+    OrderAddress:
+      type: object
+      required: [line1, line2, city, province, postal_code]
+      properties:
+        line1:
+          type: string
+        line2:
+          type: [string, "null"]
+        city:
+          type: string
+        province:
+          type: string
+        postal_code:
+          type: string
+
+    CustomerOrder:
+      type: object
+      required: [order_number, status, lines, subtotal, shipping, discount, total, shipping_address,
+                 payment_method, payment_status, courier, tracking_number, placed_at, paid_at,
+                 shipped_at, completed_at, cancelled_at]
+      properties:
+        order_number:
+          type: string
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderLine"
+        subtotal:
+          $ref: "#/components/schemas/Money"
+        shipping:
+          $ref: "#/components/schemas/Money"
+        discount:
+          $ref: "#/components/schemas/Money"
+        total:
+          $ref: "#/components/schemas/Money"
+        shipping_address:
+          $ref: "#/components/schemas/OrderAddress"
+        payment_method:
+          type: string
+          enum: [bank_transfer, midtrans]
+        payment_status:
+          description: |
+            The Midtrans payment's state (`P1-220`); `null` for bank transfer, which the shop
+            confirms by hand.
+          oneOf:
+            - $ref: "#/components/schemas/PaymentStatus"
+            - type: "null"
+        courier:
+          type: [string, "null"]
+        tracking_number:
+          type: [string, "null"]
+        placed_at:
+          type: string
+          format: date-time
+        paid_at:
+          type: [string, "null"]
+          format: date-time
+        shipped_at:
+          type: [string, "null"]
+          format: date-time
+        completed_at:
+          type: [string, "null"]
+          format: date-time
+        cancelled_at:
+          type: [string, "null"]
+          format: date-time
 
     ErrorCode:
       type: string

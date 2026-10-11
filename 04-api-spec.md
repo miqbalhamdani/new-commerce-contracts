@@ -1402,7 +1402,10 @@ GET /v1/storefront/orders/ERG-000123          X-Order-Token: q7Zr…
 
 - `/me/orders/{order_number}` for another customer's order is `404` (BR-011).
 - The guest route with a missing or wrong token is `401 customer_auth_required`; a token for one
-  order never opens another (BR-091).
+  order never opens another (BR-091). An order number that does not exist is the same `401`:
+  numbers are sequential, and a `404` would let anyone list them.
+- `payment_status` is `null` for bank transfer; Midtrans fills it from its payment attempts
+  (`P1-220`).
 
 ### 11.10 Payments
 
