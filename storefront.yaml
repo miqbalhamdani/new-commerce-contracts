@@ -330,8 +330,12 @@ paths:
         A guest checkout returns `order_token`, the guest's proof the order is theirs; send it
         as `X-Order-Token` to read the order later (BR-091). It is the same on every replay.
 
-        **Until shipping and Midtrans land** (`P1-219`, `P1-220`): there is no
-        `shipping_option`, shipping is `0`, and `bank_transfer` is the only method a shop has.
+        `shipping_option` is a courier service from `/shipping-rates`. Checkout quotes again and
+        charges that price: within the quote's 10 minutes it is the price shown (BR-121). A service
+        no longer offered is `409 shipping_unavailable`; Biteship down is
+        `502 shipping_rates_unavailable`, and no order is made.
+
+        **Until Midtrans lands** (`P1-220`), `bank_transfer` is the only method a shop has.
       requestBody:
         required: true
         content:
@@ -361,6 +365,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
+        "502":
+          $ref: "#/components/responses/BadGateway"
 
   /customers:
     post:
@@ -1019,13 +1025,15 @@ components:
         `contact` is required for a guest. With a customer token it may be left out, and the
         customer's own name, email and phone are used; the order goes into their history
         (BR-095).
-      required: [shipping_address, payment_method]
+      required: [shipping_address, shipping_option, payment_method]
       additionalProperties: false
       properties:
         contact:
           $ref: "#/components/schemas/Contact"
         shipping_address:
           $ref: "#/components/schemas/ShippingAddress"
+        shipping_option:
+          $ref: "#/components/schemas/ShippingChoice"
         payment_method:
           type: string
           enum: [bank_transfer, midtrans]
@@ -1365,6 +1373,19 @@ components:
           format: uri
           examples: ["https://app.midtrans.com/snap/snap.js"]
 
+    ShippingChoice:
+      type: object
+      description: A courier service picked from `/shipping-rates`; nothing in it is a price (BR-089).
+      required: [courier_code, courier_service_code]
+      additionalProperties: false
+      properties:
+        courier_code:
+          type: string
+          examples: ["jne"]
+        courier_service_code:
+          type: string
+          examples: ["reg"]
+
     ShippingRatesRequest:
       type: object
       required: [destination_postal_code]
@@ -1501,7 +1522,8 @@ components:
     Conflict:
       description: |
         `item_unavailable`: an item in the cart can no longer be bought; `errors` names each one
-        with `variant_id`, `sku` and `title` (BR-090).
+        with `variant_id`, `sku` and `title` (BR-090). `shipping_unavailable`: the courier service
+        picked is no longer offered to that address; get the rates again (BR-121).
       content:
         application/problem+json:
           schema:
