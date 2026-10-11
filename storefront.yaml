@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce Storefront API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     The API a shop's own website is built on (`/v1/storefront`, `04-api-spec.md` §11). It is a
     separate document from the admin `openapi.yaml`, and the two share nothing by reference: a
@@ -300,6 +300,115 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /customers:
+    post:
+      operationId: registerCustomer
+      summary: Create a customer account and sign in
+      description: |
+        Accounts belong to one shop: an email registered here is `422` on `email`, and the same
+        email at another shop is unrelated (BR-092). The password is at least 8 characters.
+        Answers with tokens: the new customer is signed in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerRegister"
+      responses:
+        "201":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tokens"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /auth/login:
+    post:
+      operationId: login
+      summary: Sign in with email and password
+      description: |
+        A wrong password, an unknown email and an account with no password (Google only) are
+        the same `401 unauthenticated` (BR-021). Tokens travel in the body, never a cookie
+        (BR-093).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tokens"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /auth/refresh:
+    post:
+      operationId: refresh
+      summary: Swap a refresh token for new tokens
+      description: |
+        Every refresh rotates: the response has a new `refresh_token`, and the one sent is spent.
+        A spent token sent again means it was copied, so the whole session is revoked and the
+        answer is `401`; sign the customer in again (BR-093). A session lasts 30 days from its
+        last refresh.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: New tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tokens"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Sign out of one session
+      description: Revokes the session `refresh_token` belongs to, if it is the caller's.
+      security:
+        - apiKey: []
+          customerBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "204":
+          description: Signed out.
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
@@ -750,6 +859,77 @@ components:
             Guests only, `null` for a signed-in customer. Send it as `X-Order-Token` to read the
             order (BR-091).
           type: [string, "null"]
+
+    CustomerRegister:
+      type: object
+      required: [email, password, name]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        name:
+          type: string
+          minLength: 1
+        phone:
+          type: [string, "null"]
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      additionalProperties: false
+      properties:
+        refresh_token:
+          type: string
+          examples: ["rt_8d1f…"]
+
+    CustomerProfile:
+      type: object
+      required: [id, email, name, phone]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        phone:
+          type: [string, "null"]
+
+    Tokens:
+      type: object
+      description: |
+        `access_token` is a 15-minute JWT to send as `Authorization: Bearer`. `refresh_token` is
+        the long-lived credential: keep it out of reach of other scripts, and swap it at
+        `/auth/refresh` before the access token runs out (BR-093).
+      required: [access_token, expires_in, refresh_token, customer]
+      properties:
+        access_token:
+          type: string
+        expires_in:
+          description: Seconds until `access_token` expires.
+          type: integer
+          examples: [900]
+        refresh_token:
+          type: string
+          examples: ["rt_8d1f…"]
+        customer:
+          $ref: "#/components/schemas/CustomerProfile"
 
     ErrorCode:
       type: string
