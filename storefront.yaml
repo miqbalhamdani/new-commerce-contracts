@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce Storefront API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     The API a shop's own website is built on (`/v1/storefront`, `04-api-spec.md` §11). It is a
     separate document from the admin `openapi.yaml`, and the two share nothing by reference: a
@@ -249,6 +249,57 @@ paths:
           $ref: "#/components/responses/OriginNotAllowed"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /carts/{cart_id}/checkout:
+    parameters:
+      - $ref: "#/components/parameters/CartId"
+    post:
+      operationId: checkout
+      summary: Turn the cart into an order
+      description: |
+        Nothing in the request is a price: lines are priced now through `variant_price()`
+        (BR-046, BR-089). Checking out the same cart again — a double tap, a retry, twenty at
+        once — returns the one order it made with `200` and the same body (BR-088).
+
+        Every item is checked first: any that is no longer available is
+        `409 item_unavailable`, naming each in `errors` with its `variant_id`, `sku` and
+        `title`, and the cart is left as it was (BR-090). An empty cart is `422 empty_cart`. A
+        payment method the shop has not enabled is `422` (BR-122).
+
+        A guest checkout returns `order_token`, the guest's proof the order is theirs; send it
+        as `X-Order-Token` to read the order later (BR-091). It is the same on every replay.
+
+        **Until shipping and Midtrans land** (`P1-219`, `P1-220`): there is no
+        `shipping_option`, shipping is `0`, and `bank_transfer` is the only method a shop has.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutRequest"
+      responses:
+        "201":
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutOrder"
+        "200":
+          description: The order this cart already made (BR-088).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutOrder"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
@@ -581,6 +632,125 @@ components:
           minimum: 0
           maximum: 999
 
+    Contact:
+      type: object
+      required: [name, email]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+        phone:
+          type: [string, "null"]
+
+    ShippingAddress:
+      type: object
+      required: [line1, city, province, postal_code]
+      additionalProperties: false
+      properties:
+        line1:
+          type: string
+          minLength: 1
+        line2:
+          type: [string, "null"]
+        city:
+          type: string
+          minLength: 1
+        province:
+          type: string
+          minLength: 1
+        postal_code:
+          type: string
+          pattern: "^[0-9]{5}$"
+
+    CheckoutRequest:
+      type: object
+      required: [contact, shipping_address, payment_method]
+      additionalProperties: false
+      properties:
+        contact:
+          $ref: "#/components/schemas/Contact"
+        shipping_address:
+          $ref: "#/components/schemas/ShippingAddress"
+        payment_method:
+          type: string
+          enum: [bank_transfer, midtrans]
+        note:
+          type: [string, "null"]
+
+    OrderLine:
+      type: object
+      required: [sku, title, qty, unit_price]
+      properties:
+        sku:
+          type: [string, "null"]
+        title:
+          type: string
+          examples: ["Erigo Basic Tee — Black / M"]
+        qty:
+          type: integer
+        unit_price:
+          $ref: "#/components/schemas/Money"
+
+    Payment:
+      type: object
+      description: A Midtrans Snap payment link (BR-123).
+      required: [snap_token, redirect_url, expires_at]
+      properties:
+        snap_token:
+          type: string
+        redirect_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+
+    CheckoutOrder:
+      type: object
+      required: [order_number, status, lines, subtotal, shipping, total, shipping_courier, shipping_service,
+                 payment_method, payment, placed_at, order_token]
+      properties:
+        order_number:
+          type: string
+          examples: ["ERG-000123"]
+        status:
+          type: string
+          examples: ["pending"]
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderLine"
+        subtotal:
+          $ref: "#/components/schemas/Money"
+        shipping:
+          $ref: "#/components/schemas/Money"
+        total:
+          $ref: "#/components/schemas/Money"
+        shipping_courier:
+          type: [string, "null"]
+        shipping_service:
+          type: [string, "null"]
+        payment_method:
+          type: string
+          enum: [bank_transfer, midtrans]
+        payment:
+          description: The Midtrans link to pay; `null` for bank transfer.
+          oneOf:
+            - $ref: "#/components/schemas/Payment"
+            - type: "null"
+        placed_at:
+          type: string
+          format: date-time
+        order_token:
+          description: |
+            Guests only, `null` for a signed-in customer. Send it as `X-Order-Token` to read the
+            order (BR-091).
+          type: [string, "null"]
+
     ErrorCode:
       type: string
       description: |
@@ -667,6 +837,15 @@ components:
 
     NotFound:
       description: No such resource in this shop.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    Conflict:
+      description: |
+        `item_unavailable`: an item in the cart can no longer be bought; `errors` names each one
+        with `variant_id`, `sku` and `title` (BR-090).
       content:
         application/problem+json:
           schema:
