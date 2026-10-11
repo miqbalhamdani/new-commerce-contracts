@@ -824,7 +824,11 @@ WHERE v.archived_at IS NULL;
 ```
 
 Brands, categories and product media hold nothing private and are read directly, with archived
-rows filtered in the query.
+rows filtered in the query. A product image tied to a variant the views do not show is returned
+with `variant_id = null`, so no hidden variant's id escapes (BR-081).
+
+The catalog list shows only products with at least one visible variant: a product whose variants
+are all archived has no price to show or sort by. Its detail page still answers, with no variants.
 
 ---
 

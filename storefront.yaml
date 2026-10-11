@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce Storefront API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     The API a shop's own website is built on (`/v1/storefront`, `04-api-spec.md` §11). It is a
     separate document from the admin `openapi.yaml`, and the two share nothing by reference: a
@@ -45,7 +45,126 @@ servers:
 security:
   - apiKey: []
 
-paths: {}
+paths:
+
+  /products:
+    get:
+      operationId: listProducts
+      summary: The shop's visible products
+      description: |
+        Only visible products (BR-080) that have at least one visible variant, so every row has a
+        price. `price_min` and `price_max` are what a shopper pays right now, sales included
+        (BR-046). `category` is a category `path` and includes its descendants; `brand` is a
+        brand slug; `q` matches the title. `image` is the first image, or `null`.
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            examples: ["apparel.tees"]
+        - name: brand
+          in: query
+          required: false
+          schema:
+            type: string
+            examples: ["erigo"]
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["-updated_at", "price_min", "-price_min", "title"]
+            default: "-updated_at"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of products.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPage"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /products/{slug}:
+    parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getProduct
+      summary: One visible product with its visible variants
+      description: |
+        A draft, archived or unknown slug is `404` (BR-080). `price` is what a shopper pays now;
+        show `regular_price` crossed out when `on_sale` (BR-046).
+      responses:
+        "200":
+          description: The product.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductDetail"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /categories:
+    get:
+      operationId: listCategories
+      summary: The shop's categories, every tree or one kind
+      description: Unpaginated, ordered by `path`. Archived categories are left out.
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CategoryKind"
+      responses:
+        "200":
+          description: The categories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryList"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /brands:
+    get:
+      operationId: listBrands
+      summary: The shop's brands
+      description: Unpaginated, ordered by name. Archived brands are left out.
+      responses:
+        "200":
+          description: The brands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandList"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
 
 components:
 
@@ -77,7 +196,224 @@ components:
       description: |
         The guest order token a checkout returns; it opens exactly that one order (BR-091).
 
+  parameters:
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size. Pairs with `cursor`; there is no `offset`.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: The previous page's `next_cursor`, opaque.
+      schema:
+        type: string
+
   schemas:
+
+    Money:
+      type: integer
+      format: int64
+      description: Minor units of IDR, so `19900000` is Rp 199.000 (BR-006).
+      examples: [19900000]
+
+    BrandRef:
+      type: object
+      required: [slug, name]
+      properties:
+        slug:
+          type: string
+          examples: ["erigo"]
+        name:
+          type: string
+          examples: ["Erigo"]
+
+    Image:
+      type: object
+      description: |
+        `url` is the 800 px rendition in a list and the 1600 px one on a product, or the original
+        until those exist. `sizes` has a URL per width (`1600`, `800`, `200`) once the image
+        has been processed, a few seconds after upload; until then it is empty.
+      required: [url, sizes]
+      properties:
+        url:
+          type: string
+          format: uri
+        sizes:
+          type: object
+          additionalProperties:
+            type: string
+            format: uri
+
+    ProductListItem:
+      type: object
+      required: [slug, title, brand, price_min, price_max, image]
+      properties:
+        slug:
+          type: string
+        title:
+          type: string
+        brand:
+          oneOf:
+            - $ref: "#/components/schemas/BrandRef"
+            - type: "null"
+        price_min:
+          $ref: "#/components/schemas/Money"
+        price_max:
+          $ref: "#/components/schemas/Money"
+        image:
+          oneOf:
+            - $ref: "#/components/schemas/Image"
+            - type: "null"
+
+    ProductPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductListItem"
+        next_cursor:
+          type: [string, "null"]
+
+    ProductImage:
+      type: object
+      required: [variant_id, url, sizes]
+      properties:
+        variant_id:
+          description: The variant this image shows, or `null` for the whole product.
+          type: [string, "null"]
+          format: uuid
+        url:
+          type: string
+          format: uri
+        sizes:
+          type: object
+          additionalProperties:
+            type: string
+            format: uri
+
+    ProductVariant:
+      type: object
+      required: [id, sku, option_values, price, regular_price, on_sale, weight_grams]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sku:
+          type: [string, "null"]
+        option_values:
+          type: array
+          items:
+            type: string
+          examples: [["Black", "S"]]
+        price:
+          $ref: "#/components/schemas/Money"
+        regular_price:
+          $ref: "#/components/schemas/Money"
+        on_sale:
+          type: boolean
+        weight_grams:
+          type: integer
+
+    ProductCategory:
+      type: object
+      required: [kind, name, path]
+      properties:
+        kind:
+          $ref: "#/components/schemas/CategoryKind"
+        name:
+          type: string
+        path:
+          type: string
+
+    ProductDetail:
+      type: object
+      required: [id, slug, title, description, brand, categories, attributes, option_names, images, variants, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: [string, "null"]
+        brand:
+          oneOf:
+            - $ref: "#/components/schemas/BrandRef"
+            - type: "null"
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductCategory"
+        attributes:
+          type: object
+          additionalProperties: true
+        option_names:
+          type: array
+          items:
+            type: string
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductImage"
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductVariant"
+        updated_at:
+          type: string
+          format: date-time
+
+    CategoryKind:
+      type: string
+      enum: [category, series, collection, activity, custom]
+
+    Category:
+      type: object
+      required: [id, parent_id, kind, name, path]
+      properties:
+        id:
+          type: string
+          format: uuid
+        parent_id:
+          type: [string, "null"]
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/CategoryKind"
+        name:
+          type: string
+        path:
+          type: string
+
+    CategoryList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+
+    BrandList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/BrandRef"
 
     ErrorCode:
       type: string
