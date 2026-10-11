@@ -1366,8 +1366,9 @@ POST /v1/storefront/auth/password-reset/confirm
   `email_verified` are checked; any failure is `401 unauthenticated`. A shop without a client ID
   answers `422`. A Google sign-in with the verified email of an existing account links the
   Google login to it, recorded in `customer_identities` (BR-127).
-- `reset_url` must start with the key's `allowed_origin`; the
-  emailed link is `reset_url?token=…`, valid 30 minutes.
+- `reset_url`'s origin must be exactly the key's `allowed_origin` — compared parsed, not as a
+  prefix, which `https://tokoabc.com.evil.example` would pass; the emailed link is
+  `reset_url?token=…`, valid 30 minutes.
 
 ### 11.9 Me and order history
 

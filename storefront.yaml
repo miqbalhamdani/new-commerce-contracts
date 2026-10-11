@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce Storefront API
-  version: 0.5.0
+  version: 0.6.0
   description: |
     The API a shop's own website is built on (`/v1/storefront`, `04-api-spec.md` §11). It is a
     separate document from the admin `openapi.yaml`, and the two share nothing by reference: a
@@ -405,6 +405,56 @@ paths:
       responses:
         "204":
           description: Signed out.
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /auth/password-reset:
+    post:
+      operationId: requestPasswordReset
+      summary: Email a password reset link
+      description: |
+        Always `202`, whether or not the email has an account, so the answer cannot be used to
+        find out (BR-021, BR-094). If it has one, the customer gets `reset_url?token=prt_…`,
+        which works once, for 30 minutes. `reset_url` is the reset page on the shop's website:
+        its origin must be the key's `allowed_origin`, else `422`. A customer who signs in only
+        with Google can use this to add a password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetRequest"
+      responses:
+        "202":
+          description: If the email has an account, a link is on its way.
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /auth/password-reset/confirm:
+    post:
+      operationId: confirmPasswordReset
+      summary: Set a new password with a reset link's token
+      description: |
+        Sets the password and signs the customer out everywhere: every session is revoked
+        (BR-094). A token that has expired, was already used, or is for another shop is `422` on
+        `token`; ask for a new link.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetConfirm"
+      responses:
+        "204":
+          description: The password is set.
         "401":
           $ref: "#/components/responses/InvalidApiKey"
         "403":
@@ -930,6 +980,30 @@ components:
           examples: ["rt_8d1f…"]
         customer:
           $ref: "#/components/schemas/CustomerProfile"
+
+    PasswordResetRequest:
+      type: object
+      required: [email, reset_url]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+        reset_url:
+          type: string
+          format: uri
+          examples: ["https://tokoabc.com/reset-password"]
+
+    PasswordResetConfirm:
+      type: object
+      required: [token, password]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          examples: ["prt_…"]
+        password:
+          type: string
+          minLength: 8
 
     ErrorCode:
       type: string
