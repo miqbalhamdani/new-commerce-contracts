@@ -715,6 +715,10 @@ CREATE TABLE payments (
 );
 -- BR-123: at most one live attempt per order.
 CREATE UNIQUE INDEX payments_one_pending_per_order ON payments (order_id) WHERE status = 'pending';
+-- An attempt is written before Midtrans is asked for its Snap link, in the transaction that makes
+-- the order or asks to pay again; snap_token and redirect_url arrive once Midtrans answers. So a
+-- Midtrans timeout never leaves a provider_order_id taken with no row, and a notification always
+-- finds its attempt.
 ```
 
 `ON DELETE CASCADE` from `orders` to `order_lines` exists for the PII purge and tenant deletion

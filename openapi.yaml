@@ -3151,8 +3151,8 @@ components:
     OrderPayment:
       type: object
       description: |
-        One Midtrans Snap attempt, newest first (BR-123). Always `[]` until `P1-220` builds
-        Midtrans at checkout; bank transfers never have a row.
+        One Midtrans Snap attempt, newest first (BR-123): `ERG-000123`, then `ERG-000123-2`, ….
+        Bank transfers never have a row.
       required: [provider_order_id, status, transaction_status, amount, paid_at, created_at]
       properties:
         provider_order_id:

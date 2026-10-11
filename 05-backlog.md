@@ -199,7 +199,7 @@ order; a minimal reference website built from the public docs alone goes product
 | P1-224 | `GET /v1/storefront/config` | BE | 216, 202 | As §11.4; contains nothing secret (BR-122, BR-127, BR-129) | review | Iqbal Hamdani |
 | P1-218 | Biteship rates: client, 10-minute cache, storefront and admin rate routes | BE | 216, 204 | As §11.6 and §5.4; one platform key from config; Biteship down → `502 shipping_rates_unavailable` (BR-120) | review | Iqbal Hamdani |
 | P1-219 | Checkout shipping: required choice, server re-quote | BE | 205, 218 | Within the cache window the charged price equals the quoted price; a service no longer offered → `409 shipping_unavailable`; no order on Biteship failure (BR-089, BR-121) | review | Iqbal Hamdani |
-| P1-220 | Midtrans at checkout: `payments` table, Snap transaction | BE | 219, 216 | As §11.7; amount equals order total; attempt ids `ERG-000123`, `-2`, …; Midtrans down → order kept, `payment_unavailable` (BR-122, BR-123) | todo | |
+| P1-220 | Midtrans at checkout: `payments` table, Snap transaction | BE | 219, 216 | As §11.7; amount equals order total; attempt ids `ERG-000123`, `-2`, …; Midtrans down → order kept, `payment_unavailable` (BR-122, BR-123) | review | Iqbal Hamdani |
 | P1-221 | Midtrans notification webhook | BE | 220 | As §11.10; bad signature → `401`, nothing changes; status confirmed by Get Status API; `settlement` marks paid once; a replayed notification is a no-op; amount mismatch never marks paid (BR-003, BR-124, BR-125) | todo | |
 | P1-222 | Pay-again route | BE | 221, 208 | As §11.10; a live attempt's link is reused; an expired one gets a new attempt; paid or cancelled → `422` (BR-126) | todo | |
 | P1-223 | Google sign-in + `customer_identities` table | BE | 206, 216 | As §11.8; wrong `aud`, unverified email or bad signature → `401`; existing verified-email account is linked through a `customer_identities` row, not duplicated; the same Google account cannot link to two customers in one shop (BR-127) | todo | |
@@ -217,8 +217,8 @@ order; a minimal reference website built from the public docs alone goes product
 > P1-227…P1-229 (encryption, storefront settings, shipping, Midtrans, Google, order emails), and 3c
 > is P1-209…P1-212. Each slice is reviewed and merged before the next starts.
 >
-> **Until P1-220, checkout is bank transfer only** (P1-205). P1-219 made `shipping_option`
-> required and re-quoted on the server.
+> Checkout started bank-transfer-only and unshipped (P1-205); P1-219 added the re-quoted
+> `shipping_option` and P1-220 Midtrans.
 >
 > **Keys held in env until a KMS exists** (decided 11 Oct 2026): the guest order-token key
 > (`ORDER_TOKEN_SECRET`, BR-091), the reset-link key (`PASSWORD_RESET_SECRET`, BR-094) and, with

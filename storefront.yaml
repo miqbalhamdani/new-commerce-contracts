@@ -335,7 +335,11 @@ paths:
         no longer offered is `409 shipping_unavailable`; Biteship down is
         `502 shipping_rates_unavailable`, and no order is made.
 
-        **Until Midtrans lands** (`P1-220`), `bank_transfer` is the only method a shop has.
+        With `midtrans`, the order is made first and then its Snap payment (BR-123): `payment` is
+        the link to pay at. If Midtrans does not answer, the order still exists, `payment` is
+        `null` and `payment_error` is `payment_unavailable`; ask for a link with
+        `POST /orders/{order_number}/payment`. A replay returns the live link. Midtrans takes whole
+        rupiah, so a total with sen in it is `422` on `payment_method`.
       requestBody:
         required: true
         content:
@@ -1071,7 +1075,7 @@ components:
     CheckoutOrder:
       type: object
       required: [order_number, status, lines, subtotal, shipping, total, shipping_courier, shipping_service,
-                 payment_method, payment, placed_at, order_token]
+                 payment_method, payment, payment_error, placed_at, order_token]
       properties:
         order_number:
           type: string
@@ -1097,9 +1101,17 @@ components:
           type: string
           enum: [bank_transfer, midtrans]
         payment:
-          description: The Midtrans link to pay; `null` for bank transfer.
+          description: The Midtrans link to pay; `null` for bank transfer, or when there is no live link.
           oneOf:
             - $ref: "#/components/schemas/Payment"
+            - type: "null"
+        payment_error:
+          description: |
+            `payment_unavailable` when a Midtrans order has no live payment link, because Midtrans
+            did not answer or the link has expired; `null` otherwise.
+          oneOf:
+            - type: string
+              enum: [payment_unavailable]
             - type: "null"
         placed_at:
           type: string
