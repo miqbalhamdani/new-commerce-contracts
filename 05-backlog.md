@@ -195,8 +195,8 @@ order; a minimal reference website built from the public docs alone goes product
 | P1-208 | `me`, order history, guest order lookup | BE | 205, 206 | As §11.9; cart follows the shopper after sign-in; one order token never opens another order (BR-082, BR-091, BR-095) | review | Iqbal Hamdani |
 | P1-227 | Envelope encryption helper (AES-256-GCM, key in KMS) | BE | 007 | Encrypt/decrypt round-trips; ciphertext never equals plaintext; a log-scan test finds no secret bytes. Reused by `P1-216` and `P1-301` (BR-101, BR-129) | review | Iqbal Hamdani |
 | P1-216 | `storefront_settings` + `GET`/`PATCH /v1/storefront-settings` | BE | 071, 227 | As §4 and `03-erd.md` §3.5; server key write-only; enabling Midtrans without keys → `422`; both methods off → `422` (BR-122, BR-129) | review | Iqbal Hamdani |
-| P1-217 | Storefront settings screen | FE | 216 | Server key field is write-only ("set" / "replace"); shows the notification URL to copy (BR-129) | todo | |
-| P1-224 | `GET /v1/storefront/config` | BE | 216, 202 | As §11.4; contains nothing secret (BR-122, BR-127, BR-129) | todo | |
+| P1-217 | Storefront settings screen | FE | 216 | Server key field is write-only ("set" / "replace"); shows the notification URL to copy (BR-129) | review | Iqbal Hamdani |
+| P1-224 | `GET /v1/storefront/config` | BE | 216, 202 | As §11.4; contains nothing secret (BR-122, BR-127, BR-129) | review | Iqbal Hamdani |
 | P1-218 | Biteship rates: client, 10-minute cache, storefront and admin rate routes | BE | 216, 204 | As §11.6 and §5.4; one platform key from config; Biteship down → `502 shipping_rates_unavailable` (BR-120) | todo | |
 | P1-219 | Checkout shipping: required choice, server re-quote | BE | 205, 218 | Within the cache window the charged price equals the quoted price; a service no longer offered → `409 shipping_unavailable`; no order on Biteship failure (BR-089, BR-121) | todo | |
 | P1-220 | Midtrans at checkout: `payments` table, Snap transaction | BE | 219, 216 | As §11.7; amount equals order total; attempt ids `ERG-000123`, `-2`, …; Midtrans down → order kept, `payment_unavailable` (BR-122, BR-123) | todo | |

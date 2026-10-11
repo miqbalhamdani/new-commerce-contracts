@@ -1197,7 +1197,7 @@ GET /v1/storefront/config
 ```
 
 Everything here is public by design; the website reads it once to render sign-in buttons and the
-payment step.
+payment step. A sandbox shop gets `https://app.sandbox.midtrans.com/snap/snap.js`.
 
 ### 11.5 Cart
 

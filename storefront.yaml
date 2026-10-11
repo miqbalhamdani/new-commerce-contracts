@@ -166,6 +166,27 @@ paths:
         "403":
           $ref: "#/components/responses/OriginNotAllowed"
 
+  /config:
+    get:
+      operationId: getConfig
+      summary: What the website needs to render sign-in and payment
+      description: |
+        Public by design, and read once: the shop's name, its Google client ID (`null` when
+        Google sign-in is off), the payment methods it takes, its bank transfer instructions, and
+        what Snap.js needs when Midtrans is on (`null` otherwise). Nothing here is secret: no
+        server key, no notification URL (BR-122, BR-127, BR-129).
+      responses:
+        "200":
+          description: The configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorefrontConfig"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+
   /carts:
     post:
       operationId: createCart
@@ -1273,6 +1294,41 @@ components:
         cancelled_at:
           type: [string, "null"]
           format: date-time
+
+    StorefrontConfig:
+      type: object
+      required: [shop_name, google_client_id, payment_methods, bank_transfer_instructions, midtrans]
+      properties:
+        shop_name:
+          type: string
+          examples: ["Toko ABC"]
+        google_client_id:
+          type: [string, "null"]
+        payment_methods:
+          type: array
+          items:
+            type: string
+            enum: [bank_transfer, midtrans]
+        bank_transfer_instructions:
+          type: [string, "null"]
+        midtrans:
+          oneOf:
+            - $ref: "#/components/schemas/MidtransConfig"
+            - type: "null"
+
+    MidtransConfig:
+      type: object
+      required: [client_key, environment, snap_js_url]
+      properties:
+        client_key:
+          type: string
+        environment:
+          type: string
+          enum: [sandbox, production]
+        snap_js_url:
+          type: string
+          format: uri
+          examples: ["https://app.midtrans.com/snap/snap.js"]
 
     ErrorCode:
       type: string
