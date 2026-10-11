@@ -1224,10 +1224,14 @@ GET /v1/storefront/carts/{cart_id}
   "expires_at": "2026-11-05T16:15:00+07:00" }
 ```
 
+- `item_count` is the total quantity of every item; `subtotal` counts available items only. An
+  unavailable item has `unit_price` and `line_total` of `null`: it has no price a shopper can pay.
 - An unknown, expired or checked-out cart id is `404`.
 - Adding a variant that is not visible is `422` on `variant_id`. A variant that becomes unavailable
   while in the cart stays listed with `"available": false` so the website can tell the shopper.
-- `qty` outside 0–999 is `422`. A `price` field anywhere is `422 unknown_field` (BR-089).
+- `qty` outside 0–999 is `422`. A `price` field anywhere is `422 unknown_field` (BR-089). `0`
+  removes an item even when its variant is no longer visible, so a shopper can always clear one.
+- Every change moves `expires_at` to 30 days out (BR-087); reading the cart does not.
 - With a customer token, the cart is attached to that customer (BR-095).
 
 ### 11.6 Shipping rates

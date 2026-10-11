@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce Storefront API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     The API a shop's own website is built on (`/v1/storefront`, `04-api-spec.md` §11). It is a
     separate document from the admin `openapi.yaml`, and the two share nothing by reference: a
@@ -166,6 +166,92 @@ paths:
         "403":
           $ref: "#/components/responses/OriginNotAllowed"
 
+  /carts:
+    post:
+      operationId: createCart
+      summary: Start a cart
+      description: |
+        No body. The `cart_id` is a random UUID and is the cart's only credential: whoever holds
+        it can read and change the cart, so the website keeps it as it would a session (BR-087).
+        An open cart expires 30 days after its last change.
+      responses:
+        "201":
+          description: The new, empty cart.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cart"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /carts/{cart_id}:
+    parameters:
+      - $ref: "#/components/parameters/CartId"
+    get:
+      operationId: getCart
+      summary: A cart, priced now
+      description: |
+        Every item at today's price, sales included; a cart stores no prices (BR-046, BR-087).
+        An item whose variant has gone out of view stays listed with `available: false` and no
+        price, and `subtotal` leaves it out (BR-090). An unknown, expired or checked-out cart is
+        `404`.
+      responses:
+        "200":
+          description: The cart.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cart"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /carts/{cart_id}/items/{variant_id}:
+    parameters:
+      - $ref: "#/components/parameters/CartId"
+      - name: variant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: setCartItem
+      summary: Set a variant's quantity in the cart
+      description: |
+        Sets the quantity, whether or not the variant is already in the cart; `0` removes it,
+        even when the variant is no longer visible. Adding a variant that is not visible is `422`
+        on `variant_id` (BR-080). `qty` outside 0–999 is `422`. A price field is
+        `422 unknown_field` (BR-089). Moves `expires_at` to 30 days out.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CartItemWrite"
+      responses:
+        "200":
+          description: The cart after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cart"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
 components:
 
   securitySchemes:
@@ -208,6 +294,15 @@ components:
         minimum: 1
         maximum: 200
         default: 50
+
+    CartId:
+      name: cart_id
+      in: path
+      required: true
+      description: The cart's id, which is also its credential (BR-087).
+      schema:
+        type: string
+        format: uuid
 
     Cursor:
       name: cursor
@@ -414,6 +509,77 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/BrandRef"
+
+    CartItem:
+      type: object
+      required: [variant_id, sku, title, product_slug, option_values, qty, unit_price, line_total, image_url, available]
+      properties:
+        variant_id:
+          type: string
+          format: uuid
+        sku:
+          type: [string, "null"]
+        title:
+          type: string
+          examples: ["Erigo Basic Tee — Black / M"]
+        product_slug:
+          type: string
+        option_values:
+          type: array
+          items:
+            type: string
+        qty:
+          type: integer
+          minimum: 1
+          maximum: 999
+        unit_price:
+          description: Today's price (BR-046); `null` when the item is not available.
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        line_total:
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        image_url:
+          description: The 200 px image of the variant, else of the product; `null` if neither has one.
+          type: [string, "null"]
+          format: uri
+        available:
+          description: Whether the variant can still be bought (BR-080, BR-090).
+          type: boolean
+
+    Cart:
+      type: object
+      required: [cart_id, items, item_count, subtotal, expires_at]
+      properties:
+        cart_id:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CartItem"
+        item_count:
+          description: The total quantity of every item.
+          type: integer
+        subtotal:
+          description: Available items only.
+          allOf:
+            - $ref: "#/components/schemas/Money"
+        expires_at:
+          type: string
+          format: date-time
+
+    CartItemWrite:
+      type: object
+      required: [qty]
+      additionalProperties: false
+      properties:
+        qty:
+          type: integer
+          minimum: 0
+          maximum: 999
 
     ErrorCode:
       type: string

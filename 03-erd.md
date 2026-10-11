@@ -1,6 +1,6 @@
 # Ecommerce Backoffice v2 · Data Model
 
-**24 tables, 2 views.** Constraints are tagged with the rule they enforce (`BR-xxx`, see
+**24 tables, 3 views.** Constraints are tagged with the rule they enforce (`BR-xxx`, see
 `02-business-rules.md`). The API contract is `04-api-spec.md`; which backlog item builds which
 table is `05-backlog.md`. Migrations in `new-commerce-api/db/migrations/` must match this file;
 if they disagree, the migration is the bug.
@@ -821,6 +821,19 @@ SELECT v.id, v.tenant_id, v.product_id, v.sku, v.option_values,
 FROM variants v
 JOIN storefront_products sp ON sp.id = v.product_id
 WHERE v.archived_at IS NULL;
+```
+
+A cart can hold a variant that has since gone out of view (BR-090), and the shopper still needs
+to see what it was. The labels view names every variant, visible or not, with only what a shopper
+saw when they added it and whether it can still be bought. Catalog queries never use it.
+
+```sql
+CREATE VIEW storefront_variant_labels WITH (security_invoker = true) AS
+SELECT v.id, v.tenant_id, v.sku, v.option_values,
+       p.title AS product_title, p.slug AS product_slug,
+       (v.archived_at IS NULL AND p.status = 'active' AND p.archived_at IS NULL) AS available
+FROM variants v
+JOIN products p ON p.id = v.product_id;
 ```
 
 Brands, categories and product media hold nothing private and are read directly, with archived
