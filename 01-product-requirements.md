@@ -436,7 +436,7 @@ pre-optimise.
 - Every admin mutation is audited with actor, IP and before/after (BR-018).
 - PII lives in `customers`, `customer_identities`, `orders.customer` and
   `orders.shipping_address`, and can be purged
-  without touching the catalog (BR-097).
+  without touching the catalog (BR-097): the owner's "Delete personal data" on a customer's page.
 - Logs redact by default; keys, tokens and credentials are never logged (BR-013).
 
 ### 8.5 Observability

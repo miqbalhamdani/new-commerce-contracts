@@ -205,12 +205,12 @@ order; a minimal reference website built from the public docs alone goes product
 | P1-223 | Google sign-in + `customer_identities` table | BE | 206, 216 | As §11.8; wrong `aud`, unverified email or bad signature → `401`; existing verified-email account is linked through a `customer_identities` row, not duplicated; the same Google account cannot link to two customers in one shop (BR-127) | review | Iqbal Hamdani |
 | P1-228 | Order emails: placed, payment received, shipped | BE | 226, 205, 221, 102 | Each email is sent once per event, from the shop's name, with courier and tracking on "shipped" (BR-128) | review | Iqbal Hamdani |
 | P1-229 | Order detail shows payment attempts and chosen shipping | FE | 220, 109 | Attempts newest first with Midtrans status; `mark-paid` on a Midtrans order warns it is an override (BR-074) | review | Iqbal Hamdani |
-| P1-209 | Storefront rate limits | BE | 202 | Browser requests per IP and per key, server requests per key and IP, login, checkout, as BR-014; headers on every response | todo | |
-| P1-210 | Storefront auth matrix suite | BE | 208 | Table-driven over origin (allowed, foreign, absent) × token presence against every storefront route (BR-082, BR-083, BR-085, BR-086) | todo | |
-| P1-211 | **Customer isolation suite** | BE | 208 | Two tenants × two customers; zero leakage both ways on every customer-scoped route; extends `P1-008` to the storefront tree (BR-001, BR-082) | todo | |
-| P1-213 | Public storefront OpenAPI at `/v1/storefront/openapi.json` + docs page | CT/BE | 222, 223, 224 | Every §11.3 route documented; the file lives in contracts and is served by the API | todo | |
-| P1-214 | Nightly retention job | BE | 204, 206 | Expired open carts and expired or revoked sessions deleted; checked-out carts kept (BR-096) | todo | |
-| P1-215 | Customer PII purge job | BE | 206, 060 | Purges one customer's PII from `customers`, `customer_identities`, `orders.customer`, `orders.shipping_address`; catalog untouched; audited (BR-097) | todo | |
+| P1-209 | Storefront rate limits | BE | 202 | Browser requests per IP and per key, server requests per key and IP, login, checkout, as BR-014; headers on every response | review | Iqbal Hamdani |
+| P1-210 | Storefront auth matrix suite | BE | 208 | Table-driven over origin (allowed, foreign, absent) × token presence against every storefront route (BR-082, BR-083, BR-085, BR-086) | review | Iqbal Hamdani |
+| P1-211 | **Customer isolation suite** | BE | 208 | Two tenants × two customers; zero leakage both ways on every customer-scoped route; extends `P1-008` to the storefront tree (BR-001, BR-082) | review | Iqbal Hamdani |
+| P1-213 | Public storefront OpenAPI at `/v1/storefront/openapi.json` + docs page | CT/BE | 222, 223, 224 | Every §11.3 route documented; the file lives in contracts and is served by the API | review | Iqbal Hamdani |
+| P1-214 | Nightly retention job | BE | 204, 206 | Expired open carts and expired or revoked sessions deleted; checked-out carts kept (BR-096) | review | Iqbal Hamdani |
+| P1-215 | Customer PII purge job | CT/BE/FE | 206, 060 | Purges one customer's PII from `customers`, `customer_identities`, `orders.customer`, `orders.shipping_address`; catalog untouched; audited (BR-097). The owner starts it with "Delete personal data" on the customer's page (`POST /v1/customers/{id}/purge`, `customers:purge`) | review | Iqbal Hamdani |
 | P1-212 | Reference website from the public docs alone | FE | 213, 222, 223 | A throwaway site outside `new-commerce-web`, using only the docs and an API key: product → cart → shipping choice → guest checkout paid with Midtrans sandbox → order lookup, and Google sign-in → order history | blocked | |
 
 > **Phase 3 is delivered in three slices** (decided 11 Oct 2026): 3a is P1-200…P1-208, 3b is
@@ -242,6 +242,14 @@ order; a minimal reference website built from the public docs alone goes product
 >
 > **Order emails** (P1-228) go to every order whose customer has an email, manual orders included
 > (decided 11 Oct 2026), and need `RESEND_API_KEY` like every email (P1-225).
+>
+> **3c decisions** (12 Oct 2026):
+> - **PII purge** (P1-215) is started by the owner from the admin: `customers:purge` and a
+>   "Delete personal data" action.
+> - **Retention** (P1-214) is a worker loop at 02:00 WIB, shop by shop as `app_user`, with no
+>   `BYPASSRLS` role; BR-003 says so.
+> - **The storefront docs** (P1-213) are served by the API, with no key, from the spec it was
+>   generated from.
 
 ---
 
