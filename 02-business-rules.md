@@ -854,6 +854,10 @@ The Midtrans server key is envelope-encrypted like channel credentials (BR-101),
 replaced, and is never returned: responses say only whether it is set. Client keys and Google
 client IDs are public by design and are returned.
 
+Unlike channel credentials, it is decrypted in the API as well as the worker: checkout, pay-again
+and the notification webhook call Midtrans while the shopper or Midtrans waits for the answer.
+It is decrypted for that one call and never logged.
+
 ---
 
 ## Traceability

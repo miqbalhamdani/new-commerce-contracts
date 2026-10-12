@@ -80,7 +80,7 @@ whatever that failure needs.
 | `rate_limited` | 429 | Over the limit; `Retry-After` and `RateLimit-*` headers | 014 |
 | `channel_unavailable` | 502 | Marketplace API failed during connect | 102 |
 | `shipping_rates_unavailable` | 502 | Biteship failed or timed out | 121 |
-| `payment_unavailable` | 502 | Midtrans failed to create a Snap transaction; the order exists and payment can be retried | 126 |
+| `payment_unavailable` | 502 | Midtrans failed to create a Snap transaction; the order exists and payment can be retried. `503` on the notification webhook when Get Status does not answer, so Midtrans retries | 124, 126 |
 | `internal` | 500 | Anything unexpected. `detail` is deliberately generic; `trace_id` is the lead | 011 |
 
 ### 1.2 Rate limits
@@ -270,7 +270,9 @@ PATCH /v1/storefront-settings
 200 OK   ← same body as GET
 ```
 
-- `midtrans_server_key` is write-only: accepted on `PATCH`, never in a response.
+- Every shop has a row from the start, with bank transfer on and Midtrans off.
+- `midtrans_server_key` is write-only: accepted on `PATCH`, never in a response. `null` removes it,
+  which needs Midtrans off.
 - Enabling `midtrans` without environment, client key and server key set is `422`. Turning off
   both payment methods is `422` (BR-122).
 - `origin_postal_code` is 5 digits; `shipping_couriers` must be Biteship courier codes. Shipping
@@ -501,8 +503,8 @@ POST /v1/orders
 Line prices come from `variant_price()` exactly as checkout does (BR-046, BR-078); a `unit_price` in the request
 is `422 unknown_field`. Archived variants are `422` naming the line. `source` must be `manual`.
 Send either `shipping` (a typed amount) or `shipping_option` (a courier choice, quoted like
-checkout, BR-121), not both. `shipping_option` and the rates route below arrive with `P1-218`
-(Phase 3); until then a manual order takes only the typed `shipping` amount.
+checkout, BR-121), not both; with neither, shipping is `0`. A courier service the fresh quote no
+longer offers is `409 shipping_unavailable`, and Biteship down is `502 shipping_rates_unavailable`.
 Manual orders are always `bank_transfer`. The order's `subtotal` is Σ qty·unit_price before any
 discount and its `discount` is the summed line discounts, so `total = subtotal + shipping -
 discount` holds by construction (BR-078).
@@ -1195,7 +1197,7 @@ GET /v1/storefront/config
 ```
 
 Everything here is public by design; the website reads it once to render sign-in buttons and the
-payment step.
+payment step. A sandbox shop gets `https://app.sandbox.midtrans.com/snap/snap.js`.
 
 ### 11.5 Cart
 
@@ -1254,7 +1256,10 @@ POST /v1/storefront/carts/{cart_id}/shipping-rates
 - Quoted by Biteship for the shop's origin and enabled couriers, over the cart's available items
   (BR-120). Quotes are cached 10 minutes; checkout within that window charges the same price
   (BR-121).
-- Biteship down → `502 shipping_rates_unavailable`. An empty cart → `422 empty_cart`.
+- Biteship down → `502 shipping_rates_unavailable`. An empty cart → `422 empty_cart`. A shop that
+  has not set its origin or couriers gets `options: []`.
+- Prices come back from Biteship in whole rupiah and go out in minor units, like every amount
+  here (BR-006). The quote is for the available items' total weight, as one parcel.
 
 ### 11.7 Checkout
 

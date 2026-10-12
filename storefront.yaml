@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce Storefront API
-  version: 0.7.0
+  version: 0.8.0
   description: |
     The API a shop's own website is built on (`/v1/storefront`, `04-api-spec.md` §11). It is a
     separate document from the admin `openapi.yaml`, and the two share nothing by reference: a
@@ -166,6 +166,27 @@ paths:
         "403":
           $ref: "#/components/responses/OriginNotAllowed"
 
+  /config:
+    get:
+      operationId: getConfig
+      summary: What the website needs to render sign-in and payment
+      description: |
+        Public by design, and read once: the shop's name, its Google client ID (`null` when
+        Google sign-in is off), the payment methods it takes, its bank transfer instructions, and
+        what Snap.js needs when Midtrans is on (`null` otherwise). Nothing here is secret: no
+        server key, no notification URL (BR-122, BR-127, BR-129).
+      responses:
+        "200":
+          description: The configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorefrontConfig"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+
   /carts:
     post:
       operationId: createCart
@@ -255,6 +276,41 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
+  /carts/{cart_id}/shipping-rates:
+    parameters:
+      - $ref: "#/components/parameters/CartId"
+    post:
+      operationId: cartShippingRates
+      summary: What shipping the cart to a postal code costs
+      description: |
+        Quoted by Biteship from the shop's origin, for the couriers it offers, over the cart's
+        available items (BR-120). A quote holds for 10 minutes: checkout within that window charges
+        the same price (BR-121). A shop that has not set its origin or couriers gets no options.
+        An empty cart is `422 empty_cart`; Biteship down is `502 shipping_rates_unavailable`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShippingRatesRequest"
+      responses:
+        "200":
+          description: The options, cheapest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShippingQuote"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
   /carts/{cart_id}/checkout:
     parameters:
       - $ref: "#/components/parameters/CartId"
@@ -274,8 +330,16 @@ paths:
         A guest checkout returns `order_token`, the guest's proof the order is theirs; send it
         as `X-Order-Token` to read the order later (BR-091). It is the same on every replay.
 
-        **Until shipping and Midtrans land** (`P1-219`, `P1-220`): there is no
-        `shipping_option`, shipping is `0`, and `bank_transfer` is the only method a shop has.
+        `shipping_option` is a courier service from `/shipping-rates`. Checkout quotes again and
+        charges that price: within the quote's 10 minutes it is the price shown (BR-121). A service
+        no longer offered is `409 shipping_unavailable`; Biteship down is
+        `502 shipping_rates_unavailable`, and no order is made.
+
+        With `midtrans`, the order is made first and then its Snap payment (BR-123): `payment` is
+        the link to pay at. If Midtrans does not answer, the order still exists, `payment` is
+        `null` and `payment_error` is `payment_unavailable`; ask for a link with
+        `POST /orders/{order_number}/payment`. A replay returns the live link. Midtrans takes whole
+        rupiah, so a total with sen in it is `422` on `payment_method`.
       requestBody:
         required: true
         content:
@@ -305,6 +369,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
+        "502":
+          $ref: "#/components/responses/BadGateway"
 
   /customers:
     post:
@@ -351,6 +417,45 @@ paths:
       responses:
         "200":
           description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tokens"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /auth/google:
+    post:
+      operationId: googleSignIn
+      summary: Sign in with Google
+      description: |
+        `id_token` is the credential Google Identity Services gives the website, for the shop's own
+        `google_client_id` (`/config`). Its signature, issuer, audience, expiry and
+        `email_verified` are checked; any failure is `401 unauthenticated`. A shop without a
+        client ID is `422` (BR-127).
+
+        The customer is the one this Google account signed in as before; else the account with
+        the same verified email, which the Google login is then linked to; else a new customer
+        with no password, answered `201`. One Google account is one customer per shop.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleSignIn"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tokens"
+        "201":
+          description: Signed in as a new customer.
           content:
             application/json:
               schema:
@@ -585,6 +690,45 @@ paths:
           $ref: "#/components/responses/InvalidApiKey"
         "403":
           $ref: "#/components/responses/OriginNotAllowed"
+
+  /orders/{order_number}/payment:
+    parameters:
+      - $ref: "#/components/parameters/OrderNumber"
+    post:
+      operationId: payAgain
+      summary: A link to pay a pending Midtrans order
+      description: |
+        For the shopper whose order it is: a signed-in customer for their own order, or a guest
+        with its `X-Order-Token` (BR-126). The live link is returned if there is one; otherwise a
+        new attempt is made (`ERG-000123-2`, …) for the order's total as it is now (BR-123).
+        Asking twice at once gets one link.
+
+        Only a `pending` Midtrans order has a payment to make: anything else is `422`. Another
+        customer's order is `404`; a guest with a missing or wrong token, or an unknown order
+        number, is `401 customer_auth_required`. Midtrans not answering is
+        `502 payment_unavailable`; ask again shortly.
+      security:
+        - apiKey: []
+          customerBearer: []
+        - apiKey: []
+          orderToken: []
+      responses:
+        "200":
+          description: The link to pay at.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+        "401":
+          $ref: "#/components/responses/InvalidApiKey"
+        "403":
+          $ref: "#/components/responses/OriginNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "502":
+          $ref: "#/components/responses/BadGateway"
 
 components:
 
@@ -963,13 +1107,15 @@ components:
         `contact` is required for a guest. With a customer token it may be left out, and the
         customer's own name, email and phone are used; the order goes into their history
         (BR-095).
-      required: [shipping_address, payment_method]
+      required: [shipping_address, shipping_option, payment_method]
       additionalProperties: false
       properties:
         contact:
           $ref: "#/components/schemas/Contact"
         shipping_address:
           $ref: "#/components/schemas/ShippingAddress"
+        shipping_option:
+          $ref: "#/components/schemas/ShippingChoice"
         payment_method:
           type: string
           enum: [bank_transfer, midtrans]
@@ -1007,7 +1153,7 @@ components:
     CheckoutOrder:
       type: object
       required: [order_number, status, lines, subtotal, shipping, total, shipping_courier, shipping_service,
-                 payment_method, payment, placed_at, order_token]
+                 payment_method, payment, payment_error, placed_at, order_token]
       properties:
         order_number:
           type: string
@@ -1033,9 +1179,17 @@ components:
           type: string
           enum: [bank_transfer, midtrans]
         payment:
-          description: The Midtrans link to pay; `null` for bank transfer.
+          description: The Midtrans link to pay; `null` for bank transfer, or when there is no live link.
           oneOf:
             - $ref: "#/components/schemas/Payment"
+            - type: "null"
+        payment_error:
+          description: |
+            `payment_unavailable` when a Midtrans order has no live payment link, because Midtrans
+            did not answer or the link has expired; `null` otherwise.
+          oneOf:
+            - type: string
+              enum: [payment_unavailable]
             - type: "null"
         placed_at:
           type: string
@@ -1071,6 +1225,14 @@ components:
         email:
           type: string
         password:
+          type: string
+
+    GoogleSignIn:
+      type: object
+      required: [id_token]
+      additionalProperties: false
+      properties:
+        id_token:
           type: string
 
     RefreshRequest:
@@ -1274,6 +1436,96 @@ components:
           type: [string, "null"]
           format: date-time
 
+    StorefrontConfig:
+      type: object
+      required: [shop_name, google_client_id, payment_methods, bank_transfer_instructions, midtrans]
+      properties:
+        shop_name:
+          type: string
+          examples: ["Toko ABC"]
+        google_client_id:
+          type: [string, "null"]
+        payment_methods:
+          type: array
+          items:
+            type: string
+            enum: [bank_transfer, midtrans]
+        bank_transfer_instructions:
+          type: [string, "null"]
+        midtrans:
+          oneOf:
+            - $ref: "#/components/schemas/MidtransConfig"
+            - type: "null"
+
+    MidtransConfig:
+      type: object
+      required: [client_key, environment, snap_js_url]
+      properties:
+        client_key:
+          type: string
+        environment:
+          type: string
+          enum: [sandbox, production]
+        snap_js_url:
+          type: string
+          format: uri
+          examples: ["https://app.midtrans.com/snap/snap.js"]
+
+    ShippingChoice:
+      type: object
+      description: A courier service picked from `/shipping-rates`; nothing in it is a price (BR-089).
+      required: [courier_code, courier_service_code]
+      additionalProperties: false
+      properties:
+        courier_code:
+          type: string
+          examples: ["jne"]
+        courier_service_code:
+          type: string
+          examples: ["reg"]
+
+    ShippingRatesRequest:
+      type: object
+      required: [destination_postal_code]
+      additionalProperties: false
+      properties:
+        destination_postal_code:
+          type: string
+          pattern: "^[0-9]{5}$"
+
+    ShippingOption:
+      type: object
+      required: [courier_code, courier_service_code, courier_name, service_name, price, duration]
+      properties:
+        courier_code:
+          type: string
+          examples: ["jne"]
+        courier_service_code:
+          type: string
+          examples: ["reg"]
+        courier_name:
+          type: string
+          examples: ["JNE"]
+        service_name:
+          type: string
+          examples: ["Reguler"]
+        price:
+          $ref: "#/components/schemas/Money"
+        duration:
+          type: string
+          examples: ["2 - 3 days"]
+
+    ShippingQuote:
+      type: object
+      required: [weight_grams, options]
+      properties:
+        weight_grams:
+          type: integer
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShippingOption"
+
     ErrorCode:
       type: string
       description: |
@@ -1368,7 +1620,17 @@ components:
     Conflict:
       description: |
         `item_unavailable`: an item in the cart can no longer be bought; `errors` names each one
-        with `variant_id`, `sku` and `title` (BR-090).
+        with `variant_id`, `sku` and `title` (BR-090). `shipping_unavailable`: the courier service
+        picked is no longer offered to that address; get the rates again (BR-121).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    BadGateway:
+      description: |
+        `shipping_rates_unavailable` or `payment_unavailable`: Biteship or Midtrans did not answer.
+        Try again shortly.
       content:
         application/problem+json:
           schema:
