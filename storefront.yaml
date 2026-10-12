@@ -10,8 +10,9 @@ info:
     it into its own package, which never imports the admin one (P1-202).
 
     **This file grows with the backlog**, as `openapi.yaml` does: a path appears when the item
-    that builds it is done (`05-backlog.md`, Phase 3). `P1-213` publishes it at
-    `/v1/storefront/openapi.json` with a docs page, and checks that every §11.3 route is here.
+    that builds it is done (`05-backlog.md`, Phase 3). The API serves it as
+    `/v1/storefront/openapi.json` and renders it at `/v1/storefront/docs`, neither needing a key,
+    and a test fails when a §11.3 route is missing from it (P1-213).
 
     ## Credentials (BR-082)
 

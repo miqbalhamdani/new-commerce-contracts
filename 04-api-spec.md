@@ -1071,8 +1071,11 @@ DELETE /v1/channel-listings/{id}
 ## 11. Storefront API (M3)
 
 This is the API owners' websites are built on, so it is the part outside developers read. It is
-published as its own OpenAPI document at `/v1/storefront/openapi.json`, separate from the admin one;
-its source is `storefront.yaml` in this repo, which grows a path per backlog item as `openapi.yaml` does.
+published as its own OpenAPI document at `/v1/storefront/openapi.json`, separate from the admin one,
+and rendered for reading at `/v1/storefront/docs`; both are public, with no key, since the
+document is the same for every shop. Its source is `storefront.yaml` in this repo, which grows a
+path per backlog item as `openapi.yaml` does, and the API embeds it when it is generated, so the
+served document is always the one the routes were built from (P1-213).
 Storefront routes never accept a staff token (BR-086).
 
 ### 11.1 Credentials
