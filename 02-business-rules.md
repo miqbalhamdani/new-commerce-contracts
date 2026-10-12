@@ -48,8 +48,12 @@ what it must:
 - Midtrans notification: `webhook_id` → `tenant_id`, encrypted server key, environment. The tenant
   is trusted only after the notification's signature verifies with that key (BR-124).
 
-Cross-tenant admin work uses a separate `BYPASSRLS` role and pool, is audit-logged, and is never
-reachable from a request.
+Work that spans shops, such as the nightly retention sweep (BR-096), crosses no boundary in a
+query and has no role of its own: it lists shop ids from `tenants`, which has no RLS, then does
+each shop's work inside that shop's own tenant transaction as the application role, so RLS holds
+as it does for a request. It is audit-logged per shop and never reachable from a request. A PII
+purge (BR-097) is not cross-tenant at all: the owner asks for it, and the tenant comes from their
+token.
 
 *Why:* a tenant read from the request is a trivial cross-tenant escalation.
 
@@ -697,7 +701,9 @@ puts the order in that customer's history.
 ### BR-096 Retention
 A nightly job deletes expired open carts with their items, and expired or revoked customer
 sessions. Checked-out carts are kept: `orders.cart_id` references them, and that reference is the
-checkout guarantee (BR-088).
+checkout guarantee (BR-088). It runs at 02:00 WIB on one worker replica, shop by shop (BR-003),
+and a shop it deleted something from gets one `retention.sweep` audit row with the counts and no
+actor. A night missed is not caught up; the next night deletes what it would have.
 
 ### BR-097 Customer PII can be purged
 Shopper PII lives only in `customers`, `customer_identities`, `orders.customer` and
