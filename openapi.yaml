@@ -782,7 +782,8 @@ paths:
       description: |
         Long work answers `202 {job_id}`; this is what the client polls (BR-060). The permission is
         the job's own: `products:write` for `product_import`, `exports:read` for `order_export`,
-        `channels:read` for `channel_import`, `media:read` for `image_derivatives`. Every `GET` of
+        `channels:read` for `channel_import`, `media:read` for `image_derivatives`,
+        `customers:purge` for `customer_purge`. Every `GET` of
         a finished job signs fresh 15-minute URLs (BR-063); the database stores keys.
       responses:
         "200":
@@ -1824,6 +1825,33 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
+  /customers/{id}/purge:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: purgeCustomer
+      summary: Erase a customer's personal data as a background job
+      description: |
+        Answers a data subject's deletion request (BR-097): anonymises the customer, signs them
+        out everywhere, and redacts the name, email, phone, street address and note on their
+        orders, including guest and manual orders placed with the same email. Totals, lines and
+        payments stay. Cannot be undone. No body. Answers `202 {job_id}`; poll `GET /jobs/{id}`,
+        whose result is `{orders}`, the number of orders redacted. A purged customer can be
+        purged again harmlessly. Requires `customers:purge` (owner).
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /customers/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -2498,7 +2526,7 @@ components:
 
     JobKind:
       type: string
-      enum: [product_import, order_export, channel_import, image_derivatives]
+      enum: [product_import, order_export, channel_import, image_derivatives, customer_purge]
 
     Job:
       type: object
@@ -2529,7 +2557,7 @@ components:
           description: |
             `null` until `done`. Per kind: `product_import` carries `created`, `updated` and
             `error_report_url` (+ `expires_in`), `null` when nothing failed; `order_export` carries
-            `download_url`.
+            `download_url`; `customer_purge` carries `orders`.
           additionalProperties: true
         error:
           oneOf:
@@ -3593,7 +3621,7 @@ components:
     Customer:
       type: object
       description: Never a password hash, session or token (BR-092).
-      required: [id, name, email, phone, order_count, created_at]
+      required: [id, name, email, phone, order_count, created_at, purged_at]
       properties:
         id:
           type: string
@@ -3609,6 +3637,10 @@ components:
         created_at:
           type: string
           format: date-time
+        purged_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the customer's personal data was erased (BR-097); `null` until then.
 
     CustomerPage:
       type: object

@@ -180,6 +180,7 @@ Four seeded, fixed roles (BR-023). A permission is `resource:action`, with `read
 | `orders:read` | ✓ | ✓ | ✓ | ✓ |
 | `orders:write` | ✓ | ✓ | ✓ | |
 | `customers:read` | ✓ | ✓ | ✓ | ✓ |
+| `customers:purge` | ✓ | | | |
 | `exports:read` | ✓ | ✓ | ✓ | ✓ |
 | `channels:read` | ✓ | ✓ | | ✓ |
 | `channels:write` | ✓ | ✓ | | |
@@ -191,8 +192,9 @@ Four seeded, fixed roles (BR-023). A permission is `resource:action`, with `read
 | `settings:read` | ✓ | ✓ | | ✓ |
 | `settings:write` | ✓ | | | |
 
-- **`owner` is `admin` plus `settings:write`, nothing more.** Settings hold the tenant itself and,
-  later, billing.
+- **`owner` is `admin` plus `settings:write` and `customers:purge`, nothing more.** Settings hold
+  the tenant itself and, later, billing. Erasing a shopper's personal data cannot be undone, and
+  answering a data subject's request is the shop's legal duty (BR-097).
 - **`ops` works orders and customers and reads the catalog.** v2 makes `ops` read-only on products
   (in v1 it could write them); catalog editing belongs to owner and admin.
 - **`ops` does not read settings.** The shop's settings are owner and admin business, read-only for
@@ -201,7 +203,7 @@ Four seeded, fixed roles (BR-023). A permission is `resource:action`, with `read
 - **`orders:write` covers every transition**, manual entry and refund recording. There is no
   separate `orders:cancel`.
 - **There is no `customers:write`.** Staff never create customer accounts or touch credentials
-  (BR-092).
+  (BR-092). `customers:purge` only erases (BR-097).
 
 `403` names the required permission in `detail` (BR-024). The client does not render what the user
 cannot do (BR-025).
@@ -391,6 +393,7 @@ GET /v1/audit-log?subject_type=order&subject_id=0192…
 | `POST` | `/v1/shipping/rates` | `orders:write` | 120 |
 | `GET` | `/v1/customers?q=&limit=&cursor=` | `customers:read` | 092 |
 | `GET` | `/v1/customers/{id}` | `customers:read` | 092 |
+| `POST` | `/v1/customers/{id}/purge` | `customers:purge` | 060, 097 |
 
 ### 5.1 Order list
 
@@ -532,7 +535,17 @@ GET /v1/customers/{id}
 200 OK   ← Customer + "orders": [ …order list rows, newest first, up to 50… ]
 ```
 
-Read-only. No password hash, session or token ever appears (BR-092).
+Read-only. No password hash, session or token ever appears (BR-092). `purged_at` is `null` until
+the customer's personal data is erased:
+
+```json
+POST /v1/customers/{id}/purge
+202 Accepted
+{ "job_id": "0193…" }        ← poll GET /v1/jobs/{id}; result { "orders": 3 }
+```
+
+Erases one shopper's personal data (BR-097) in a `customer_purge` job: no body, owner only. Asking
+again for a purged customer queues a job that changes nothing, so a retry is always safe.
 
 ### 5.6 Order export
 
@@ -984,7 +997,7 @@ product's media is `422`.
 
 | Method | Path | Permission | BR |
 |---|---|---|---|
-| `GET` | `/v1/jobs/{id}` | the job's own permission: `products:write` for `product_import`, `exports:read` for `order_export`, `channels:read` for `channel_import` | 060, 063 |
+| `GET` | `/v1/jobs/{id}` | the job's own permission: `products:write` for `product_import`, `exports:read` for `order_export`, `channels:read` for `channel_import`, `media:read` for `image_derivatives`, `customers:purge` for `customer_purge` | 060, 063 |
 
 ```json
 GET /v1/jobs/{id}
@@ -1000,7 +1013,8 @@ GET /v1/jobs/{id}
 ```
 
 - `result` is `null` until `state` is `done`. Its counts depend on `kind`: `order_export` carries
-  `download_url`; `channel_import` carries `created`, `linked`, `filled`, `unchanged`, `failed`.
+  `download_url`; `channel_import` carries `created`, `linked`, `filled`, `unchanged`, `failed`;
+  `customer_purge` carries `orders`, the number of orders redacted.
 - Every `GET` of a finished job signs fresh 15-minute URLs; that is how links are regenerated
   (BR-063).
 

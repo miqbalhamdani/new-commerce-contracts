@@ -217,7 +217,8 @@ CREATE TABLE jobs (
     id           uuid PRIMARY KEY,
     tenant_id    uuid NOT NULL REFERENCES tenants(id),
     kind         text NOT NULL CHECK (kind IN ('product_import','order_export',
-                                               'channel_import','image_derivatives')),
+                                               'channel_import','image_derivatives',
+                                               'customer_purge')),
     state        text NOT NULL DEFAULT 'queued'
                  CHECK (state IN ('queued','running','done','failed')),
     processed    integer NOT NULL DEFAULT 0,
@@ -510,6 +511,7 @@ CREATE TABLE customers (
     name              text NOT NULL,
     phone             text,
     email_verified_at timestamptz,
+    purged_at         timestamptz,          -- personal data erased (BR-097)
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, email),

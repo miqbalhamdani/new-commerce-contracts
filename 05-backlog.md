@@ -210,7 +210,7 @@ order; a minimal reference website built from the public docs alone goes product
 | P1-211 | **Customer isolation suite** | BE | 208 | Two tenants × two customers; zero leakage both ways on every customer-scoped route; extends `P1-008` to the storefront tree (BR-001, BR-082) | todo | |
 | P1-213 | Public storefront OpenAPI at `/v1/storefront/openapi.json` + docs page | CT/BE | 222, 223, 224 | Every §11.3 route documented; the file lives in contracts and is served by the API | todo | |
 | P1-214 | Nightly retention job | BE | 204, 206 | Expired open carts and expired or revoked sessions deleted; checked-out carts kept (BR-096) | todo | |
-| P1-215 | Customer PII purge job | BE | 206, 060 | Purges one customer's PII from `customers`, `customer_identities`, `orders.customer`, `orders.shipping_address`; catalog untouched; audited (BR-097) | todo | |
+| P1-215 | Customer PII purge job | CT/BE/FE | 206, 060 | Purges one customer's PII from `customers`, `customer_identities`, `orders.customer`, `orders.shipping_address`; catalog untouched; audited (BR-097). The owner starts it with "Delete personal data" on the customer's page (`POST /v1/customers/{id}/purge`, `customers:purge`) | todo | |
 | P1-212 | Reference website from the public docs alone | FE | 213, 222, 223 | A throwaway site outside `new-commerce-web`, using only the docs and an API key: product → cart → shipping choice → guest checkout paid with Midtrans sandbox → order lookup, and Google sign-in → order history | blocked | |
 
 > **Phase 3 is delivered in three slices** (decided 11 Oct 2026): 3a is P1-200…P1-208, 3b is

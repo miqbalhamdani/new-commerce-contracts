@@ -710,6 +710,24 @@ Shopper PII lives only in `customers`, `customer_identities`, `orders.customer` 
 `orders.shipping_address`. A
 customer's deletion request, or a tenant deletion, can purge it without touching catalog data.
 
+The owner starts a purge from the customer's page (`customers:purge`, a `customer_purge` job). In
+one transaction it:
+
+- anonymises the `customers` row: name `Deleted customer`, email `purged+{id}@invalid` (freeing
+  the address to sign up again), phone, password and verification cleared, `purged_at` set;
+- deletes their `customer_identities` and `customer_sessions`, which signs them out everywhere;
+- redacts every order that is theirs: their own, and guest or manual orders placed with the
+  same email. `customer` becomes `{"name": "Deleted customer", "email": null, "phone": null}`,
+  the address keeps `city`, `province` and `postal_code` for sales by region and loses its
+  street lines, the `note` is cleared, and the stored Midtrans notification is dropped. Totals,
+  lines, statuses and payments stay, since the shop's books need them;
+- redacts the shipping addresses and notes that `order.update` audit rows recorded for those
+  orders;
+- writes one `customer.purge` audit row, which names no personal data.
+
+It is safe to run twice. An order export already downloaded is outside the system; one still in
+storage expires within 7 days (BR-053).
+
 *Why:* Indonesia's PDP law gives data subjects that right; it must be a job, not a migration.
 
 ---
