@@ -315,10 +315,26 @@ must not happen on storage that has never been restored from.
 | P1-502 | Runbooks: restore, deploy, key rotation, channel reconnect | OPS | 003 | Each runbook was followed once by someone who did not write it | todo | |
 | P1-070 | **Pilot tenant live** | OPS | 003, 212 | A real shop's catalog is loaded and its website takes real orders for 2 weeks | todo | |
 
-> **`P1-001` needs a decision before it can start:** the production domain. Every document still
-> says `{domain}`. Caddy's default ACME challenge also cannot reach a machine behind the
-> Cloudflare proxy, so the TLS mode (DNS-01 with a Cloudflare token, or a Cloudflare Origin
-> certificate) is part of this item, not an implementation detail.
+> **Phase 6 is delivered in three slices** (decided 13 Oct 2026), while there is still no domain,
+> VPS, Cloudflare zone or R2 bucket: **6a** builds and runs it (P1-004, P1-001, P1-002), **6b**
+> operates it (P1-003, P1-500, P1-501, P1-502), both proven with Docker Compose on a developer
+> machine, MinIO standing in for R2 and a local Grafana stack for Grafana Cloud; **6c** cuts over
+> to the real box and runs the pilot (P1-070). An item whose acceptance needs the real box is
+> `blocked` after its local half, with its cutover steps here, as `P1-045` is.
+>
+> Also decided: the admin passes `/v1/*` to the API on its own host (`04-api-spec.md` §1);
+> monitoring is Grafana Cloud's free tier through an Alloy agent; expected peak is 10 storefront
+> requests a second, so k6 runs at 100 (`01-product-requirements.md` §8.1).
+>
+> **`P1-004` in practice:** the snapshot is main's schema with `dev-seed` data until production
+> exists, then a restored production backup. Contract drift is red when the generated code does
+> not match the pinned contract, or the pinned contracts commit is not on contracts `main`, so an
+> api or web PR goes green only once its contracts PR has merged (re-run it).
+>
+> **`P1-001` needs a decision at cutover:** the production domain. Every document still says
+> `{domain}`. Caddy's default ACME challenge also cannot reach a machine behind the Cloudflare
+> proxy, so the TLS mode is part of this item; a Cloudflare Origin certificate is the
+> recommendation, since DNS-01 needs a custom Caddy build with the Cloudflare module.
 
 ---
 
