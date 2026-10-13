@@ -16,6 +16,8 @@ the other, in the same commit.
 | Concern | Rule |
 |---|---|
 | Base | `https://api.{domain}/v1`. Version in the path; a breaking change gets `/v2` |
+| Hosts | `api.{domain}` serves the storefront and the Midtrans webhook. The admin calls its API on its own origin: `admin.{domain}/v1/*` is passed to the same API, so admin routes need no CORS and the refresh cookie stays host-only. `/healthz` is answered only inside the deployment, never on either host |
+| Client IP | The address the proxy in front reports, trusted only from that proxy (`TRUSTED_PROXIES`); a forwarded header from anyone else is ignored. Rate limits per IP and audit-log IPs use it (BR-014, BR-018) |
 | Auth (admin) | `Authorization: Bearer <JWT>`, 15-minute access token, rotating refresh in an httpOnly cookie (BR-022). Admin routes accept nothing else |
 | Auth (storefront) | `X-Api-Key: sf_live_…` on every request, plus `Authorization: Bearer <customer token>` or `X-Order-Token` where personal data is involved (§11.1) |
 | Auth (webhook) | `POST /v1/webhooks/midtrans/{webhook_id}` only: authenticated by Midtrans' `signature_key` and confirmed with the Get Status API (BR-124, §11.10) |

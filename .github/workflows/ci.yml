@@ -1,0 +1,18 @@
+# P1-004: the two OpenAPI documents must stay valid; api and web generate
+# their servers and clients from them. Warnings are allowed, errors are red.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx -y @redocly/cli@2.62.1 lint openapi.yaml storefront.yaml

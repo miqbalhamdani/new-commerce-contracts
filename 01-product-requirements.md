@@ -1,7 +1,7 @@
 # Ecommerce Backoffice v2 · Product Requirements
 
 **Version** 2.0 · **Date** 6 October 2026 · **Owner** Iqbal Hamdani, Koltiva
-**Stack** Go 1.23 · PostgreSQL 16 · Next.js 15 (App Router) · Cloudflare R2
+**Stack** Go 1.26 · PostgreSQL 18 · Next.js 15 (App Router) · Cloudflare R2
 **Tenancy** Shared schema, `tenant_id` column, PostgreSQL Row-Level Security
 
 What the product is, who uses it, what they do with it, and how we know each part is done. Rules
@@ -209,18 +209,24 @@ Three things to notice, because they are the design:
 | Queue | Redis Streams + consumer groups | At-least-once with ack. Redis is already needed for rate limits and token revocation |
 | Object storage | Cloudflare R2 | Zero egress makes public product images on owners' websites cheap |
 | Frontend | Next.js 15 App Router | The admin only. The storefront is the owner's own website |
-| Observability | OpenTelemetry | Trace checkout and each import job end to end |
+| Observability | OpenTelemetry → Grafana Cloud | Trace checkout and each import job end to end. A Grafana Alloy agent on the box turns spans into latency and error rates and ships logs; alert rules live in the repo |
 | Payments | Midtrans Snap, the owner's own account | Money goes straight to the owner; the platform never holds funds |
 | Shipping rates | Biteship rates API, one platform key | About Rp5 a quote; owners set only origin and couriers |
 | Email | Resend | Free plan: 3,000 a month, 100 a day. A shop at 2–5 orders a day sends ~10–15 emails a day, so the free plan covers about 7–10 shops; Pro ($20/month, 50,000, no daily cap) covers about 100 |
 
 **Deployment: one VPS** (start at 4 vCPU / 8 GB / NVMe, Docker Compose): Caddy, Next.js,
 `cmd/api` ×2 (so a deploy drains one at a time and never drops a checkout), `cmd/worker` ×1,
-PostgreSQL 16, Redis 7 (AOF `everysec`). Cloudflare in front (DNS, WAF, edge rate limits); a
-Cloudflare Worker in front of R2 for the image domain. Running on one box makes these our job:
-**backups** (pgBackRest or wal-g to R2, restore-tested before the first pilot), per-service
-`cpus`/`mem_limit`, PostgreSQL tuned for a shared box, alert at 70% disk. Move PostgreSQL to a
-managed instance first when outgrowing the box, then split the worker. Neither needs a code change.
+PostgreSQL 18, Redis 8 (AOF `everysec`), Grafana Alloy. Images are built by CI and pulled, never
+built on the box. Cloudflare in front (DNS, WAF, edge rate limits); a Cloudflare Worker in front
+of R2 for the image domain. Running on one box makes these our job: **backups** (pgBackRest to
+R2, encrypted, four weekly full backups with WAL between them, restore-tested before the first
+pilot), per-service `cpus`/`mem_limit`, PostgreSQL tuned for a shared box, alert at 70% disk.
+Move PostgreSQL to a managed instance first when outgrowing the box, then split the worker.
+Neither needs a code change.
+
+Two hosts: `admin.{domain}` serves the admin and passes `/v1/*` to the API, so the admin and its
+API share an origin and the staff refresh cookie is host-only; `api.{domain}` serves the
+storefront and the Midtrans webhook (`04-api-spec.md` §1).
 
 ---
 
@@ -391,7 +397,9 @@ active) · import result with downloadable error report · linked listings view.
 
 ### 8.1 Performance targets
 
-The design point is storefront browsing, not order volume.
+The design point is storefront browsing, not order volume. **Expected peak is 10 storefront
+requests a second** across every shop at the pilot, generous for 2–5 orders a day each; the load
+test runs at ten times that (§8.6).
 
 | Path | Target | Why |
 |---|---|---|
@@ -443,11 +451,16 @@ pre-optimise.
 
 Trace storefront request → checkout → order insert as one trace, and each import job as one trace
 with a span per batch. Alert on: storefront 5xx rate > 1% · checkout p95 > 2 s · a spike in
-`origin_not_allowed` (usually an allowlist not updated after a domain change) · a spike in failed customer logins per tenant (credential stuffing) · any
-channel in `reauth_required` for more than 24 hours · any failed import job · any Midtrans
-notification with a bad signature or an amount mismatch · Biteship error rate > 5% · more than 80 emails in a day while on Resend's
-free plan (its cap is 100) · bounce rate > 2% or complaint rate > 0.1% (providers suspend senders
-above their limits).
+`origin_not_allowed`, more than 50 in 10 minutes for one shop (usually an allowlist not updated
+after a domain change) · a spike in failed customer logins, more than 100 in 15 minutes for one
+shop (credential stuffing spread over many addresses) · any channel in `reauth_required` for more
+than 24 hours · any failed import job · any Midtrans notification with a bad signature or an
+amount mismatch · Biteship error rate > 5% · more than 80 emails in a day while on Resend's free
+plan (its cap is 100) · bounce rate > 2% or complaint rate > 0.1% (providers suspend senders
+above their limits) · disk above 70%.
+
+Traces, logs and alerts go to Grafana Cloud through the Alloy agent; the rules are files in
+`new-commerce-api/deploy/alerts`, so a change to one is reviewed like code.
 
 ### 8.6 Testing
 
@@ -459,8 +472,8 @@ above their limits).
 | Concurrency | `go test -race`, plus 20 parallel checkouts of one cart: exactly one order, all 20 responses carry it |
 | Storefront auth | Table-driven over origin (allowed, foreign, absent) × token presence, against every storefront route |
 | Channel adapters | Recorded HTTP fixtures per marketplace, replayed; sandbox contract tests where offered |
-| Load | k6 against staging on the production VPS spec: storefront browsing at 10× expected peak with an import running |
-| Migration | Every migration applied to a restored production-shaped snapshot in CI |
+| Load | k6 on the production VPS spec: storefront browsing at 100 requests a second (10× the expected peak, §8.1) with a 10,000-variant import running |
+| Migration | Every migration applied in CI to a production-shaped snapshot: main's schema with seeded data until production exists, then a restored production backup |
 
 ---
 
