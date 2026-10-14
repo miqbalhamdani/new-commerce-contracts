@@ -336,6 +336,7 @@ POST /v1/api-keys
 201 Created
 { "id": "0192…", "name": "Main website",
   "key": "sf_live_3f9a91c2e8…",           ← shown exactly once; never retrievable again
+  "key_last4": "42ab",                    ← kept, so lists show sf_live_••••42ab; null on older keys
   "allowed_origin": "https://tokoabc.com",
   "created_by": { "id": "0192…", "name": "Budi" },
   "last_used_at": null, "revoked_at": null, "created_at": "2026-10-06T16:15:00+07:00" }

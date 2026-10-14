@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: New Commerce API
-  version: 2.11.0
+  version: 2.12.0
   description: |
     Ecommerce Backoffice v2 — the admin API (`/v1`). The storefront API (`/v1/storefront`) is its
     own document, `storefront.yaml`, published at `/v1/storefront/openapi.json` by `P1-213`.
@@ -3034,7 +3034,7 @@ components:
 
     ApiKey:
       type: object
-      required: [id, name, allowed_origin, created_by, last_used_at, revoked_at, created_at]
+      required: [id, name, key_last4, allowed_origin, created_by, last_used_at, revoked_at, created_at]
       properties:
         id:
           type: string
@@ -3042,6 +3042,12 @@ components:
         name:
           type: string
           examples: ["Main website"]
+        key_last4:
+          type: [string, "null"]
+          description: |
+            The key's last four characters, so a list can show `sf_live_••••42ab` (BR-028). `null`
+            for a key created before v2.12.0.
+          examples: ["42ab"]
         allowed_origin:
           type: string
           examples: ["https://tokoabc.com"]

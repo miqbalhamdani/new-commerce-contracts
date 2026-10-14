@@ -284,8 +284,9 @@ active owner of a tenant cannot be disabled or demoted.
   authenticates admin routes.
 - A key has exactly one allowed origin: the website's URL, `https://tokoabc.com`.
 - Keys are stored as SHA-256 hashes, and the plaintext is shown **exactly once**, at creation.
-  Nothing else about the key is stored: lists show its name and allowed origin, which is how keys
-  are told apart.
+  Besides the hash, only the key's last four characters are kept, so a list shows
+  `sf_live_••••42ab` next to its name and allowed origin; four characters of a 256-bit random
+  part give nothing away.
 - A key's name and allowed origin can be edited. Keys are revoked, never deleted.
 - A website served from two origins (`tokoabc.com` and `www.tokoabc.com`), or a staging site,
   gets one key per origin. Each is revoked on its own.
