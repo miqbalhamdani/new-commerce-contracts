@@ -176,6 +176,7 @@ CREATE TABLE api_keys (
     -- BR-083) and from the website's own server. Personal data needs a customer
     -- or order token on top (BR-082).
     key_hash        text NOT NULL UNIQUE,   -- SHA-256; the plaintext is shown once
+    key_last4       text,                   -- 'sf_live_••••42ab' in lists; NULL before v2.12
     -- The website's URL: exact scheme + host + port, no path, e.g. 'https://tokoabc.com'.
     -- One per key; a second origin (www, staging) gets its own key (BR-028).
     allowed_origin  text NOT NULL CHECK (allowed_origin ~ '^https?://[^/?#]+$'),
@@ -908,7 +909,7 @@ variant of a product contend on one row, and erase the difference between on-han
 | Removed | `stock_locations`, `stock_ledger_entries`, `stock_balances`, `channel_events`, `reservations`, `fulfillments`, `fulfillment_lines`, `shipments`, `returns`, `return_lines`, `idempotency_keys`, `outbound_webhooks` (all from the v1.0 spec, never built) |
 | Added | `customers`, `customer_sessions`, `carts`, `cart_items`, `orders`, `order_lines`, `order_sequences`, `channels`, `channel_listings`, `audit_log`, `jobs`, and in v2.1 `storefront_settings`, `payments` |
 | `users.role` | `warehouse` removed from the CHECK (BR-023). Migration: P1-017 |
-| `api_keys` | `permissions` and `key_prefix` dropped; `allowed_origin` added (one URL per key). One kind of key, no `kind` column (BR-028). Migration: P1-019 |
+| `api_keys` | `permissions` and `key_prefix` dropped; `allowed_origin` added (one URL per key). One kind of key, no `kind` column (BR-028). Migration: P1-019. v2.12 adds `key_last4` |
 | `brands` | `channel_brand_ids` dropped (marketplace CSV export retired, BR-061) |
 | `products` | `slug` added (BR-042) |
 | `variants` (v2.3) | `price_amount` → `regular_price_amount`; `compare_at_amount` → `sale_price_amount` with `sale_starts_at`, `sale_ends_at`; `variant_price()` added (BR-046) |
