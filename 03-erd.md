@@ -122,6 +122,29 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
 -- migration is one line and cannot get three of the four right.
 ```
 
+**Limited-roles mode** (BR-001). Chosen once, by the first migration, from the migrating
+connection's `app.role_mode` setting (`limited`, or unset for the default), and recorded as an
+`IMMUTABLE` function `db_role_mode()` that later migrations read. In limited mode:
+
+```sql
+-- No app_user, no auth_lookup: the schema owner cannot create roles. The first
+-- migration refuses limited mode if app_user already exists.
+-- enable_tenant_rls(<t>) adds, after tenant_isolation:
+CREATE POLICY limited_read_bypass ON <t> FOR SELECT
+    USING (rls_bypass_on());
+-- rls_bypass_on() is current_setting('app.rls_bypass', true) = 'on', declared
+-- IMMUTABLE so the planner folds it: permissive policies are OR'd, and
+-- `tenant_id = X OR <stable>` could use no tenant_id index anywhere. A statement
+-- keeps the value it was planned with, which is why the bypass is set only where
+-- everything is planned and run with it on (the four lookups, the backup's own
+-- pg_dump session) and never in an application session (BR-001).
+-- The four BR-003 lookups are plpgsql rather than sql: set_config('app.rls_bypass',
+-- 'on', true) and app.tenant_id to the nil uuid, RETURN QUERY the same fixed
+-- columns, then restore both. A function's own SET clause cannot carry a custom
+-- setting for a non-superuser; the nil uuid keeps tenant_isolation's cast from
+-- failing on a pooled connection, where an ended transaction leaves the setting ''.
+```
+
 ### 3.2 Platform (M5)
 
 ```sql

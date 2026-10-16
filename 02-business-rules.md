@@ -27,6 +27,24 @@ applies to it. CI fails if any table with a `tenant_id` column lacks an enabled 
 relied on to catch that class of bug. `FORCE` matters because without it the table owner, which
 is the role migrations run as, bypasses its own policy.
 
+**Limited-roles mode.** Some managed databases give the schema owner neither `CREATEROLE` nor
+`BYPASSRLS`, so `app_user` (and BR-003's lookup role) cannot exist. A deployment may then opt in,
+once, when the schema is first created, to a limited mode; it is never the default, and never
+mixed with the roles above:
+
+- The app connects as the schema owner. It is not a superuser, so `FORCE` still binds it and
+  every table keeps its `tenant_isolation` policy: a forgotten tenant filter still reads nothing.
+- Each tenant table also gets one `SELECT`-only policy that admits every row while the
+  transaction-local setting `app.rls_bypass` is `on`. Only two things may set it: BR-003's four
+  lookup functions, for their one query, and the backup's `pg_dump`. Application code never sets
+  it. Writes never pass it.
+- What is weaker: the app owns the tables, so it could switch RLS off or set the bypass itself.
+  The database no longer contains a SQL injection; it still contains an ordinary query bug.
+
+*Why limited mode exists:* it lets a shop run on a shared managed database rather than not at
+all. Moving to a database with the real roles means re-creating the schema in the default mode,
+not switching modes in place.
+
 ### BR-002 Tenant context is set per transaction and fails closed
 The tenant is set with `set_config('app.tenant_id', …, true)` inside every transaction, never per
 connection. A query with no tenant context returns `ErrNoTenantContext`, never an empty result.
@@ -47,6 +65,10 @@ what it must:
 - API key resolution: `id, tenant_id, allowed_origin, revoked_at`;
 - Midtrans notification: `webhook_id` → `tenant_id`, encrypted server key, environment. The tenant
   is trusted only after the notification's signature verifies with that key (BR-124).
+
+Each function belongs to a role that bypasses RLS and owns nothing else. In BR-001's limited-roles
+mode there is no such role: the function belongs to the schema owner and turns `app.rls_bypass`
+on for its one query, then back off. Its columns are fixed the same way.
 
 Work that spans shops, such as the nightly retention sweep (BR-096), crosses no boundary in a
 query and has no role of its own: it lists shop ids from `tenants`, which has no RLS, then does
