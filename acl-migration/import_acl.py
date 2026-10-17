@@ -136,6 +136,8 @@ class Api:
                                      data=None if body is None else json.dumps(body).encode())
         req.add_header("Content-Type", "application/json")
         req.add_header("Accept", "application/json")
+        # Cloudflare in front of the API answers urllib's default "Python-urllib/3.x" with 403.
+        req.add_header("User-Agent", "acl-import/1.0")
         if auth:
             req.add_header("Authorization", "Bearer " + self.token)
         if if_match is not None:
